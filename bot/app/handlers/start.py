@@ -12,7 +12,7 @@ from afu_shared.models import Employee, TelegramLinkToken
 from app.keyboards.common import contact_request_keyboard, identity_confirm_keyboard, main_menu_keyboard
 from app.states.verification import VerificationStates
 from app.utils.rate_limit import register_employee_id_attempt
-from app.utils.transient import send_transient
+from app.utils.transient import schedule_delete, send_transient
 
 router = Router(name="start")
 
@@ -34,7 +34,9 @@ async def cmd_start(
     state: FSMContext,
     session: AsyncSession,
     employee: Employee | None,
+    arq_pool: ArqRedis,
 ) -> None:
+    await schedule_delete(arq_pool, message.chat.id, message.message_id)
     await state.clear()
 
     if employee is not None and employee.is_eligible:

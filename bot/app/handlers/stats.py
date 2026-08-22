@@ -1,17 +1,23 @@
 from aiogram import F, Router
 from aiogram.types import Message
+from arq import ArqRedis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import RequestStatus
 from afu_shared.models import Employee, Rating, Request
 from app.keyboards.common import BTN_STATS
+from app.utils.transient import schedule_delete
 
 router = Router(name="stats")
 
 
 @router.message(F.text == BTN_STATS)
-async def show_stats(message: Message, session: AsyncSession, employee: Employee | None) -> None:
+async def show_stats(
+    message: Message, session: AsyncSession, employee: Employee | None, arq_pool: ArqRedis
+) -> None:
+    await schedule_delete(arq_pool, message.chat.id, message.message_id)
+
     if employee is None or not employee.is_eligible:
         await message.answer("Avval shaxsingizni tasdiqlashingiz kerak. /start ni bosing.")
         return

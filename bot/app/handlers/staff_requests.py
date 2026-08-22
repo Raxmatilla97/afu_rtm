@@ -12,6 +12,7 @@ from afu_shared.models import Employee, Request, RequestStatusHistory
 from app.keyboards.common import BTN_MY_ASSIGNMENTS
 from app.keyboards.requests import assignment_list_keyboard, request_detail_keyboard
 from app.states.staff_actions import StaffActionStates
+from app.utils.transient import schedule_delete
 
 router = Router(name="staff_requests")
 
@@ -38,7 +39,11 @@ async def _render_list(session: AsyncSession, employee: Employee) -> tuple[str, 
 
 
 @router.message(F.text == BTN_MY_ASSIGNMENTS)
-async def show_assignments(message: Message, session: AsyncSession, employee: Employee | None) -> None:
+async def show_assignments(
+    message: Message, session: AsyncSession, employee: Employee | None, arq_pool: ArqRedis
+) -> None:
+    await schedule_delete(arq_pool, message.chat.id, message.message_id)
+
     if not _require_staff(employee):
         await message.answer("Bu bo'lim faqat RTM xodimlari uchun.")
         return
