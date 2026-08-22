@@ -1,0 +1,13 @@
+from fastapi import APIRouter
+
+from app.api import auth, categories, departments, employees, hemis_sync, ratings, requests, stats
+
+api_router = APIRouter()
+api_router.include_router(auth.router)
+api_router.include_router(hemis_sync.router)
+api_router.include_router(departments.router)
+api_router.include_router(employees.router)
+api_router.include_router(requests.router)
+api_router.include_router(categories.router)
+api_router.include_router(ratings.router)
+api_router.include_router(stats.router)

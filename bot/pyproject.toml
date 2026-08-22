@@ -1,0 +1,18 @@
+[project]
+name = "afu-bot"
+version = "0.1.0"
+description = "Telegram bot for the AFU RTM helpdesk platform"
+requires-python = ">=3.12"
+dependencies = [
+    "afu-shared",
+    "aiogram>=3.10.0",
+    "arq>=0.26",
+    "redis>=5.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
