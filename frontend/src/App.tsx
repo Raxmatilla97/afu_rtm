@@ -8,6 +8,8 @@ import { RequestsListPage } from "@/pages/RequestsListPage";
 import { RequestDetailPage } from "@/pages/RequestDetailPage";
 import { NewRequestPage } from "@/pages/NewRequestPage";
 import { EmployeesPage } from "@/pages/EmployeesPage";
+import { InventoryPage } from "@/pages/InventoryPage";
+import { SoftPage } from "@/pages/SoftPage";
 import { DepartmentsPage } from "@/pages/DepartmentsPage";
 import { HemisSyncPage } from "@/pages/HemisSyncPage";
 import { StatsPage } from "@/pages/StatsPage";
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="/requests/:id" element={<RequestDetailPage />} />
             <Route path="/leaderboard" element={<LeaderboardPage />} />
             <Route path="/stats" element={<StatsPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/soft" element={<SoftPage />} />
 
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="/employees" element={<EmployeesPage />} />

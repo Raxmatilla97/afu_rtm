@@ -45,6 +45,11 @@ export function Layout() {
           )}
           <NavItem to="/leaderboard" label="Top xodimlar" />
           <NavItem to="/stats" label="Statistika" />
+          {/* Inventory is for the people who fix things: knowing whether the part is on the
+              shelf is part of doing the job, so RTM staff read it even though only a
+              supervisor may change it. */}
+          {(isStaff || isAdmin) && <NavItem to="/inventory" label="RTM Inventar" />}
+          <NavItem to="/soft" label="RTM Soft" />
           {isAdmin && <NavItem to="/employees" label="Xodimlar" />}
           {isAdmin && <NavItem to="/departments" label="Bo'limlar" />}
           {isAdmin && <NavItem to="/hemis-sync" label="HEMIS sinxronizatsiya" />}

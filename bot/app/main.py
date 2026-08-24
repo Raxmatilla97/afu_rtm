@@ -16,11 +16,13 @@ from app.handlers import (
     contact,
     fallback,
     group,
+    inventory,
     messaging,
     my_requests,
     new_request,
     rating,
     replies,
+    soft,
 )
 from app.middlewares.auth_guard import AuthGuardMiddleware
 from app.middlewares.autoclean import AutoCleanMiddleware
@@ -87,6 +89,8 @@ async def main() -> None:
         new_request.router,
         my_requests.router,
         assignments.router,
+        inventory.router,
+        soft.router,
         messaging.router,
         rating.router,
         # After the state-driven routers: someone halfway through a form who happens to

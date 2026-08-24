@@ -56,6 +56,12 @@ class Request(TimestampMixin, Base):
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    #: Set while the request sits in waiting: when the part is expected, and why it is
+    #: blocked. The date is a promise to the reporter, so it is stored rather than derived —
+    #: "we are waiting" without a date is what makes people give up and call instead.
+    waiting_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    waiting_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completion_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 

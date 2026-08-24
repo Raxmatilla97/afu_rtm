@@ -272,7 +272,8 @@ BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
 Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
 biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`,
-kechikish ogohlantirishlari uchun `d81f4c60a7e3`, rollar va bloklash uchun `e5a2b71d9c40`, xodim-admin uchun `f04c8b2e5a17`
+kechikish ogohlantirishlari uchun `d81f4c60a7e3`, rollar va bloklash uchun `e5a2b71d9c40`, xodim-admin uchun `f04c8b2e5a17`,
+inventar/soft va kutish holati uchun `a17d3f9b6e21`
 migratsiyasi kerak — tekshirish:
 
 ```bash
@@ -366,6 +367,8 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 | Kechikish ogohlantirishi kelmayapti | `worker` ishlayaptimi va murojaatga muddat qo'yilganmi — 9b-bo'lim |
 | Guruhda «Tayinlash» bosilsa "faqat Boshliq yoki Admin" chiqadi | Xodimlar sahifasida o'sha odamga **Boshliq** yoki **Admin** belgisi qo'yilmagan |
 | Bloklangan xodim hali ham kirmoqda | Bloklash `employees.is_blocked` da — `access_revoked` emas. Xodimlar sahifasida holat «🚫 Bloklangan» ko'rinishi kerak |
+| Botda inventar tanlash chiqmayapti | Omborda qoldiq yo'q — «RTM Inventar» sahifasidan qo'shing. Bo'sh kategoriyalar ko'rsatilmaydi |
+| «Soft va drayverlar» bo'sh | Fayllar «RTM Soft» sahifasidan yuklanadi; Boshliq yoki Admin huquqi kerak |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |
 | Har bir login `unmatched` | HEMIS sync qilinmagan — 6-bosqichga qarang |
 | Frontend eski API manzilga uryapti | `VITE_API_BASE_URL` build vaqtida o'qiladi — `--build` bilan qayta yig'ing |

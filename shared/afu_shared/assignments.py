@@ -16,7 +16,12 @@ from afu_shared.models import Employee, Request, RequestAssignee, RequestStatusH
 
 
 #: Statuses a request can be picked up from. Finished or cancelled work is not up for grabs.
-OPEN_FOR_PICKUP = (RequestStatus.NEW.value, RequestStatus.ASSIGNED.value, RequestStatus.IN_PROGRESS.value)
+OPEN_FOR_PICKUP = (
+    RequestStatus.NEW.value,
+    RequestStatus.ASSIGNED.value,
+    RequestStatus.IN_PROGRESS.value,
+    RequestStatus.WAITING.value,
+)
 
 
 async def assignees_of(session: AsyncSession, request_id: int) -> list[RequestAssignee]:

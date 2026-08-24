@@ -13,9 +13,11 @@ from afu_shared.assignments import assignee_ids, is_assigned
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.models import Employee, Request, RequestStatusHistory
-from app.callbacks import AsgCB
+from app.callbacks import AsgCB, InvCB
 from app.filters.media import HAS_MEDIA
+from app.handlers.inventory import apply_picks
 from app.screens import assignments as screens
+from app.screens import inventory as inventory_screens
 from app.services.attachments import attachments_for_request
 from app.services.thread import store_thread_message
 from app.states.staff_actions import StaffActionStates
@@ -183,13 +185,57 @@ async def complete_request(
         employee_id=employee.id,
         visibility=MessageVisibility.TO_REQUESTER,
     )
+    note = row.body or (
+        f"{describe_attachments([attachment])} bilan hisobot" if attachment else "Bajarildi"
+    )
+
+    # The report is in; the request is NOT closed yet. One more screen asks what the job
+    # consumed, because asking afterwards never happens and asking beforehand interrupts
+    # somebody who is still holding a screwdriver. "Yo'q" is a single tap.
+    await state.set_state(StaffActionStates.choosing_inventory)
+    await state.update_data(rid=request.id, page=page, report_id=row.id, note=note, picks=[])
+    await render(
+        bot, redis, message.chat.id,
+        inventory_screens.build_use_prompt(request.id, request.display_number, []),
+        force_new=True,
+    )
+
+
+@router.callback_query(InvCB.filter(F.act == "done"))
+async def finish_completion(
+    callback: CallbackQuery,
+    callback_data: InvCB,
+    state: FSMContext,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+    arq_pool: ArqRedis,
+) -> None:
+    """Close the request, deducting whatever was picked along the way.
+
+    Stock and status move in one transaction: a completion that recorded the parts but did
+    not close the job — or the reverse — is worse than either failing outright.
+    """
+    await callback.answer()
+    if callback.message is None:
+        return
+
+    data = await state.get_data()
+    request = await session.get(Request, callback_data.rid or data.get("rid", 0))
+    if request is None or not await is_assigned(session, request.id, employee.id):
+        await state.clear()
+        await callback.answer("Topshiriq topilmadi.", show_alert=True)
+        return
+
+    used = await apply_picks(session, state, request, employee)
 
     previous = request.status
     request.status = RequestStatus.COMPLETED.value
     request.completed_at = datetime.now(timezone.utc)
-    request.completion_note = row.body or (
-        f"{describe_attachments([attachment])} bilan hisobot" if attachment else "Bajarildi"
-    )
+    request.completion_note = data.get("note") or "Bajarildi"
+    request.waiting_until = None
+    request.waiting_reason = None
     session.add(
         RequestStatusHistory(
             request_id=request.id,
@@ -200,28 +246,31 @@ async def complete_request(
         )
     )
     await session.flush()
+
+    page = data.get("page", 1)
+    report_id = data.get("report_id")
     await state.clear()
 
     # Commit before queueing: the worker reads the report back by id in its own session.
     await session.commit()
-    await arq_pool.enqueue_job("send_completion_notification", request.id, row.id)
+    await arq_pool.enqueue_job("send_completion_notification", request.id, report_id)
 
     team = await assignee_ids(session, request.id)
-    credited = (
-        f" ({len(team)} xodim)" if len(team) > 1 else ""
-    )
+    credited = f" ({len(team)} xodim)" if len(team) > 1 else ""
+    parts = f"\n🔧 Ishlatildi: {', '.join(used)}" if used else ""
     await arq_pool.enqueue_job(
         "refresh_request_cards",
         request.id,
         f"✅ <b>{request.display_number}</b> bajarildi — "
-        f"<b>{employee.full_name}</b>{credited}.",
+        f"<b>{employee.full_name}</b>{credited}.{parts}",
     )
 
     screen = await screens.build_list(session, employee, page)
-    await render(bot, redis, message.chat.id, screen, force_new=True)
+    await render(bot, redis, callback.message.chat.id, screen, force_new=True)
     await send_transient(
-        bot, redis, arq_pool, message.chat.id,
-        f"✅ {request.display_number} bajarildi. Murojaatchiga xabar yuborildi.",
+        bot, redis, arq_pool, callback.message.chat.id,
+        f"✅ {request.display_number} bajarildi."
+        + (f" Ishlatilgan inventar hisobga olindi ({len(used)} tur)." if used else ""),
     )
 
 

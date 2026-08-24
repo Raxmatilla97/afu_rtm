@@ -11,6 +11,7 @@ class StatsSummary(BaseModel):
     new_count: int
     assigned_count: int
     in_progress_count: int
+    waiting_count: int = 0
     completed_count: int
     cancelled_count: int
 

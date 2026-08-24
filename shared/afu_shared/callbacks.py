@@ -69,3 +69,35 @@ class GrpCB(CallbackData, prefix="g"):
     eid: int = 0
     #: ``assign`` only: page of the staff picker.
     page: int = 1
+
+
+class InvCB(CallbackData, prefix="i"):
+    """Picking inventory while closing a request, and parking a request that is blocked.
+
+    Deliberately terse. Callback data is capped at 64 bytes and this factory carries the
+    most fields of any of them, so the category is referenced by its slug and everything
+    else by id.
+    """
+
+    act: str  # skip | cats | items | pick | qty | done | wait | wait_for
+    rid: int = 0
+    #: ``items`` only — which category is being browsed.
+    slug: str = ""
+    #: ``pick``/``qty`` only — the chosen item.
+    iid: int = 0
+    #: ``qty`` only — how many, or ``wait_for`` — how many days to wait.
+    n: int = 0
+    page: int = 1
+
+
+class SoftCB(CallbackData, prefix="d"):
+    """The driver and software shelf.
+
+    ``d`` for "download": ``s`` was already taken by the statistics tabs, and a collision
+    would route a stats tap into a file send.
+    """
+
+    act: str  # cats | list | get | back
+    slug: str = ""
+    aid: int = 0
+    page: int = 1

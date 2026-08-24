@@ -5,8 +5,40 @@ class RequestStatus(StrEnum):
     NEW = "new"
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
+    #: Blocked on a part that is not in stock. Distinct from ``in_progress`` because
+    #: nobody is working on it and it must not be counted as late while it waits — the
+    #: delay belongs to the supply chain, not to the person holding the job.
+    WAITING = "waiting"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+class InventoryStatus(StrEnum):
+    """Where an inventory line stands.
+
+    ``PLANNED`` and ``ORDERED`` exist so a part can be tracked *before* it is on a shelf —
+    which is the whole point of noticing that a request is blocked on it.
+    """
+
+    AVAILABLE = "available"
+    PLANNED = "planned"
+    ORDERED = "ordered"
+    ARCHIVED = "archived"
+
+
+class MovementReason(StrEnum):
+    """Why a stock level changed.
+
+    Every change goes through a movement row, so the current quantity is always explainable:
+    ``PURCHASE`` adds, ``CONSUMPTION`` removes and names the request that consumed it,
+    ``ADJUSTMENT`` is a stock-take correction, ``WRITE_OFF`` is loss or damage.
+    """
+
+    PURCHASE = "purchase"
+    CONSUMPTION = "consumption"
+    ADJUSTMENT = "adjustment"
+    WRITE_OFF = "write_off"
+    RETURN = "return"
 
 
 class RequestSource(StrEnum):

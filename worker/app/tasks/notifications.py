@@ -402,3 +402,44 @@ def _keyboard_for(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=label, callback_data=data)] for label, data in buttons
         ]
     )
+
+
+async def notify_request_waiting(ctx: dict, request_id: int, employee_id: int | None = None) -> None:
+    """Tell the reporter their request is parked, and why.
+
+    Written as an explanation rather than a status change. "Waiting" with no reason and no
+    date is what makes people give up on the system and phone somebody instead — the two
+    things that keep them waiting patiently are knowing what is missing and knowing when to
+    expect it.
+    """
+    async with session_scope() as session:
+        request = await session.get(Request, request_id)
+        if request is None:
+            logger.error("notify_request_waiting: request %s not found", request_id)
+            return
+
+        requester = await session.get(Employee, request.requester_employee_id)
+        if not requester or not requester.telegram_user_id:
+            return
+
+        staff = await session.get(Employee, employee_id) if employee_id else None
+        until = _fmt_dt(request.waiting_until)
+
+        text = (
+            "⏸ <b>Murojaatingiz vaqtincha kutish holatida</b>\n\n"
+            f"🎫 <b>{request.display_number}</b>\n\n"
+            f"📝 {request.description}\n\n"
+            f"<b>Sabab:</b> {request.waiting_reason or 'Kerakli qism omborda yo‘q'}\n"
+            f"⏳ <b>Taxminiy muddat:</b> {until}\n\n"
+            "Murojaatingiz bekor qilinmadi va unutilmadi — kerakli qism kelishi bilan "
+            f"{staff.full_name if staff else 'RTM xodimi'} ishni davom ettiradi va sizga "
+            "xabar beramiz."
+            + REPLY_HINT
+        )
+        chat_id = requester.telegram_user_id
+        keyboard = _keyboard_for(
+            ("💬 Javob berish", ReqCB(act="reply", rid=request_id).pack()),
+            ("📋 Murojaatni ochish", ReqCB(act="open", rid=request_id).pack()),
+        )
+
+    await _deliver(chat_id, text, [], request_id=request_id, reply_markup=keyboard)

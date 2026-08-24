@@ -31,6 +31,7 @@ OPEN_STATUSES = (
     RequestStatus.NEW.value,
     RequestStatus.ASSIGNED.value,
     RequestStatus.IN_PROGRESS.value,
+    RequestStatus.WAITING.value,
 )
 
 #: How far back the trend chart looks. A year fits on one axis without crowding and covers
@@ -68,6 +69,7 @@ def _summary_from(rows: dict[str, int]) -> StatsSummary:
         new_count=rows.get(RequestStatus.NEW.value, 0),
         assigned_count=rows.get(RequestStatus.ASSIGNED.value, 0),
         in_progress_count=rows.get(RequestStatus.IN_PROGRESS.value, 0),
+        waiting_count=rows.get(RequestStatus.WAITING.value, 0),
         completed_count=rows.get(RequestStatus.COMPLETED.value, 0),
         cancelled_count=rows.get(RequestStatus.CANCELLED.value, 0),
     )

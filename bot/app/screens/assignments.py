@@ -5,11 +5,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.assignments import assignees_of, is_assigned
+from afu_shared.inventory import used_on_request
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Request, RequestAssignee, RequestMessage
-from app.callbacks import AsgCB, Nav
+from app.callbacks import AsgCB, InvCB, Nav
 from app.keyboards.common import menu_button
 from app.services.attachments import attachments_for_request
 from app.ui.anchor import Screen
@@ -18,7 +19,14 @@ from app.ui.paging import PAGE_SIZE, offset_for, paging_row, total_pages
 
 THREAD_PAGE_SIZE = 5
 
-OPEN_STATUSES = (RequestStatus.ASSIGNED.value, RequestStatus.IN_PROGRESS.value)
+#: Everything that still needs somebody. WAITING is in the list on purpose: a request
+#: parked for a part is still that person's job, and dropping it off their screen is how it
+#: gets forgotten until the reporter calls.
+OPEN_STATUSES = (
+    RequestStatus.ASSIGNED.value,
+    RequestStatus.IN_PROGRESS.value,
+    RequestStatus.WAITING.value,
+)
 
 
 def _fmt_dt(value) -> str:
@@ -116,18 +124,36 @@ async def build_detail(
     if requester and requester.phone_number:
         lines.append(f"Telefon: {requester.phone_number}")
     lines.append(f"Muddat: {_fmt_dt(request.deadline_at)}")
+
+    if request.status == RequestStatus.WAITING.value:
+        lines.append(
+            f"\n⏸ <b>Kutilmoqda:</b> {request.waiting_reason or '—'}"
+            f"\nKutish muddati: {_fmt_dt(request.waiting_until)}"
+        )
+
     lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
+
+    used = await used_on_request(session, rid)
+    if used:
+        lines.append("\n🔧 <b>Ishlatilgan inventar:</b>")
+        for movement in used:
+            item = movement.item
+            lines.append(f"• {item.name} — {abs(movement.delta)} {item.unit}")
 
     files = await attachments_for_request(session, rid)
     if files:
         lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(files)}")
 
     rows: list[list[InlineKeyboardButton]] = []
-    if request.status == RequestStatus.ASSIGNED.value:
+    if request.status in (RequestStatus.ASSIGNED.value, RequestStatus.WAITING.value):
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="▶️ Ishni boshlash",
+                    # A parked job resumes rather than starts: the label has to say which,
+                    # or pressing it feels like undoing the wait by accident.
+                    text="▶️ Davom ettirish"
+                    if request.status == RequestStatus.WAITING.value
+                    else "▶️ Ishni boshlash",
                     callback_data=AsgCB(act="start", rid=rid, page=page).pack(),
                 )
             ]
@@ -162,6 +188,15 @@ async def build_detail(
             )
         ]
     )
+    if request.status != RequestStatus.WAITING.value:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⏸ Inventar kutish",
+                    callback_data=InvCB(act="wait", rid=rid).pack(),
+                )
+            ]
+        )
     rows.append(
         [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=Nav(to="assign", page=page).pack())]
     )

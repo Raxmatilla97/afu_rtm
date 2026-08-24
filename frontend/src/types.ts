@@ -161,6 +161,7 @@ export const STATUS_LABELS: Record<string, string> = {
   new: "Yangi",
   assigned: "Tayinlangan",
   in_progress: "Jarayonda",
+  waiting: "Inventar kutilmoqda",
   completed: "Bajarilgan",
   cancelled: "Bekor qilingan",
 };
@@ -211,4 +212,98 @@ export interface StatsOverview {
   staff_load: StaffLoad[];
   open_overdue: number;
   unassigned: number;
+}
+
+/** Money crosses the wire as a string: JSON has no decimal, and a float would round it. */
+export type Money = string | null;
+
+export interface InventoryCategory {
+  slug: string;
+  label_uz: string;
+  sort_order: number;
+  is_active: boolean;
+  item_count: number;
+}
+
+export interface InventoryAttachment {
+  id: number;
+  item_id: number;
+  movement_id: number | null;
+  original_filename: string | null;
+  content_type: string | null;
+  file_size: number | null;
+  url: string;
+  created_at: string;
+}
+
+export interface InventoryItem {
+  id: number;
+  category_slug: string;
+  category_label: string | null;
+  name: string;
+  unit: string;
+  quantity: number;
+  min_quantity: number;
+  is_low: boolean;
+  status: string;
+  status_label: string;
+  unit_price: Money;
+  note: string | null;
+  attachments: InventoryAttachment[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  item_id: number;
+  item_name: string | null;
+  delta: number;
+  reason: string;
+  reason_label: string;
+  request_id: number | null;
+  request_number: string | null;
+  employee_name: string | null;
+  unit_price: Money;
+  total_price: Money;
+  note: string | null;
+  attachments: InventoryAttachment[];
+  created_at: string;
+}
+
+export interface InventorySummary {
+  total_items: number;
+  in_stock_items: number;
+  low_items: number;
+  planned_items: number;
+  stock_value: Money;
+  spent_this_month: Money;
+  consumed_this_month: number;
+}
+
+export interface SoftCategory {
+  slug: string;
+  label_uz: string;
+  sort_order: number;
+  is_active: boolean;
+  asset_count: number;
+}
+
+export interface SoftAsset {
+  id: number;
+  category_slug: string;
+  category_label: string | null;
+  title: string;
+  version: string | null;
+  description: string | null;
+  original_filename: string | null;
+  content_type: string | null;
+  file_size: number | null;
+  download_count: number;
+  is_active: boolean;
+  /** The bot already holds a Telegram handle, so the next hand-off costs no upload. */
+  is_cached: boolean;
+  download_url: string;
+  last_sent_at: string | null;
+  created_at: string;
 }

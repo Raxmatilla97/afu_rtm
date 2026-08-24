@@ -13,6 +13,7 @@ from app.tasks.hemis_sync import hemis_sync_task
 from app.tasks.notifications import (
     notify_request_assigned,
     notify_request_message,
+    notify_request_waiting,
     send_completion_notification,
 )
 from app.tasks.oauth import notify_oauth_login_complete
@@ -29,6 +30,7 @@ class WorkerSettings:
         send_completion_notification,
         notify_request_message,
         notify_request_assigned,
+        notify_request_waiting,
         notify_oauth_login_complete,
         publish_request_card,
         refresh_request_cards,

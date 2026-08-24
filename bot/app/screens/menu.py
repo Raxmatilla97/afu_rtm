@@ -3,7 +3,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from afu_shared.models import Employee
-from app.callbacks import Nav
+from app.callbacks import Nav, SoftCB
 from app.keyboards.common import menu_button
 from app.ui.anchor import Screen
 
@@ -45,6 +45,9 @@ def build_help(employee: Employee) -> Screen:
             "Ishni boshlash, murojaatchiga yozish, ichki izoh qoldirish va yakunlash mumkin.\n",
         ]
     lines += [
+        "<b>Soft va drayverlar</b>",
+        "Printer drayveri, antivirus, ofis dasturlari — pastdagi tugmadan. "
+        "Fayl shu chatga yuboriladi va 10 daqiqadan so'ng o'chadi.\n",
         "<b>Buyruqlar</b>",
         "/menu — asosiy menyu",
         "/help — shu sahifa",
@@ -53,5 +56,15 @@ def build_help(employee: Employee) -> Screen:
 
     return Screen(
         text="\n".join(lines),
-        keyboard=InlineKeyboardMarkup(inline_keyboard=[[menu_button()]]),
+        keyboard=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💿 Soft va drayverlar",
+                        callback_data=SoftCB(act="cats").pack(),
+                    )
+                ],
+                [menu_button()],
+            ]
+        ),
     )

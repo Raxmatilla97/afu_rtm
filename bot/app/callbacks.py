@@ -6,6 +6,26 @@ lived here the worker hand-wrote the packed strings ("a:open:12:1"), which meant
 added on this side silently produced buttons that no longer parsed on the other.
 """
 
-from afu_shared.callbacks import AsgCB, CatCB, FlowCB, GrpCB, Nav, ReqCB, StatCB
+from afu_shared.callbacks import (
+    AsgCB,
+    CatCB,
+    FlowCB,
+    GrpCB,
+    InvCB,
+    Nav,
+    ReqCB,
+    SoftCB,
+    StatCB,
+)
 
-__all__ = ["AsgCB", "CatCB", "FlowCB", "GrpCB", "Nav", "ReqCB", "StatCB"]
+__all__ = [
+    "AsgCB",
+    "CatCB",
+    "FlowCB",
+    "GrpCB",
+    "InvCB",
+    "Nav",
+    "ReqCB",
+    "SoftCB",
+    "StatCB",
+]

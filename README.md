@@ -136,6 +136,44 @@ ro'yxati chiqadi. Muddat o'zgartirilsa, ogohlantirish qaytadan berilishi mumkin 
 Bajarilganda murojaatchiga 🎉🟢 yashil, tabriklovchi xabar boradi — sarflangan vaqt va
 baholash tugmalari bilan.
 
+### RTM Inventar
+
+Ombor hisobi: asbob-uskunalar va tez ketadigan rasxodniklar (toner, baraban, kabel).
+Kategoriyalar tayyor holda keladi, ularga inventar qo'shiladi.
+
+**Qoldiq hech qachon to'g'ridan-to'g'ri tahrirlanmaydi.** Har bir o'zgarish sababi bilan
+yoziladi (kirim / ishlatildi / hisobdan chiqarish / tuzatish), qoldiq esa shu yozuvlarning
+yig'indisi. Shuning uchun «martda 12 ta toner olindik, 3 tasi qoldi — qolgani qayerga
+ketdi?» degan savolga javob bor. Tahrirlanadigan raqam faqat bugungi holatni biladi.
+
+Narx va chek — **ixtiyoriy**. Ko'p rasxodnik narxi yozilmagan holda keladi, va narx
+yozilmaguncha inventarni ro'yxatga olmaslik registrni aynan kerakli joyda foydasiz qiladi.
+Rejalashtirilgan xaridlar ham yuritiladi (📝 Rejalashtirilgan / 🚚 Buyurtma qilingan).
+
+**Botda:** RTM xodimi murojaatni yakunlaganda hisobotdan keyin bitta ekran chiqadi —
+«Bu ishda biror inventar ishlatildimi?». Ishlatilmagan bo'lsa **bitta tugma** («Yo'q,
+yakunlash») va tamom. Ishlatilgan bo'lsa: kategoriya → qism → soni (1/2/3/5 yoki qo'lda).
+Har bir tanlovdan keyin ro'yxat ko'rinadi, yana qo'shish yoki yakunlash mumkin. Sarf faqat
+yakunlash bosilganda hisobdan yechiladi — yarim yo'lda tashlab ketilgan oqim omborni
+buzmaydi.
+
+Kerakli qism yo'q bo'lsa — **«⏸ Inventar kutish»**: muddat tanlanadi (1 kun … 1 oy) va nima
+kutilayotgani yoziladi. Murojaat `⏸ Inventar kutilmoqda` holatiga o'tadi, murojaatchiga
+sabab va taxminiy muddat bilan xabar boradi, guruhga qisqa xabar tushadi. Kutayotgan
+murojaat **kechikkan deb hisoblanmaydi** — kechikish ta'minotga tegishli, uni ushlab turgan
+odamga emas. Xodim ro'yxatida esa qolaveradi, aks holda unutiladi.
+
+### RTM Soft
+
+Drayverlar va dasturlar. Fayllar **veb-saytdan** yuklanadi (kategoriyalar bilan), botda esa
+`/help` → **«💿 Soft va drayverlar»** tugmasidan olinadi: kategoriya → fayl → chatga
+yuboriladi.
+
+Bot faylni hech qachon qayta yuklamaydi: birinchi yuborishda Telegram qaytargan `file_id`
+saqlanadi va keyingi barcha so'rovlar bir zumda bajariladi. Yuborilgan fayl **10 daqiqadan
+so'ng o'chiriladi**, boshqa ekranga o'tilsa esa darhol — chat fayl menejeriga aylanmasligi
+uchun.
+
 ### Materiallar qanday saqlanadi
 
 Har bir fayl ikki xil saqlanadi: **diskda** (`STORAGE_ROOT` — veb-interfeys shu nusxani ko'rsatadi) va **Telegram `file_id`** sifatida. Botning har qanday qayta yuborishi `file_id` orqali ketadi — bu tezkor va fayl turi (ovozli xabar, aylana video) o'zgarmaydi. 20 MB dan katta fayllarni Bot API yuklab bera olmaydi: bunday fayl faqat Telegramda qoladi, veb-interfeysda esa "faqat Telegramda mavjud" deb ko'rsatiladi.

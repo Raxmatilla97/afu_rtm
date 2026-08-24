@@ -28,6 +28,7 @@ _HEADLINES = {
     RequestStatus.NEW.value: "🆕 <b>YANGI MUROJAAT</b>",
     RequestStatus.ASSIGNED.value: "🙋 <b>QABUL QILINDI</b>",
     RequestStatus.IN_PROGRESS.value: "⚡️ <b>ISH KETMOQDA</b>",
+    RequestStatus.WAITING.value: "⏸ <b>QISM KUTILMOQDA</b>",
     RequestStatus.COMPLETED.value: "✅ <b>BAJARILDI</b>",
     RequestStatus.CANCELLED.value: "❌ <b>BEKOR QILINDI</b>",
 }
@@ -47,6 +48,8 @@ def is_overdue(request: Request, *, now: datetime | None = None) -> bool:
     """
     if request.deadline_at is None:
         return False
+    # A parked request is not late: the delay belongs to the supply chain, and shouting at
+    # the person holding it changes nothing they can act on.
     if request.status not in (
         RequestStatus.NEW.value,
         RequestStatus.ASSIGNED.value,
@@ -174,6 +177,7 @@ def build_card_keyboard(
         RequestStatus.NEW.value,
         RequestStatus.ASSIGNED.value,
         RequestStatus.IN_PROGRESS.value,
+        RequestStatus.WAITING.value,
     )
 
     if is_open:
