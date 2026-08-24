@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from afu_shared.settings import settings
+from app.api.oauth import router as oauth_router
 from app.api.router import api_router
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,10 @@ app.mount(
 )
 
 app.include_router(api_router, prefix="/api")
+
+# Mounted WITHOUT a prefix: the HEMIS redirect URI is https://rtm.afu.uz/oauth/callback,
+# a root path. Deliberately not part of api_router, which lives under /api.
+app.include_router(oauth_router)
 
 
 @app.get("/health")

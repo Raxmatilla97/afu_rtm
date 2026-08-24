@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from pydantic import BaseModel, EmailStr
 
 
@@ -12,21 +10,6 @@ class AdminMeResponse(BaseModel):
     id: int
     email: str
     role: str
-
-
-class TelegramLinkStartRequest(BaseModel):
-    employee_id_number: str
-
-
-class TelegramLinkStartResponse(BaseModel):
-    token: str
-    deep_link: str
-    expires_at: datetime
-
-
-class TelegramLinkStatusResponse(BaseModel):
-    status: str
-    session_ready: bool
 
 
 class EmployeeMeResponse(BaseModel):
