@@ -9,10 +9,14 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.enums import RequestStatus
+from afu_shared.enums import MessageVisibility, RequestStatus
+from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.models import Employee, Request, RequestStatusHistory
 from app.callbacks import AsgCB
+from app.filters.media import HAS_MEDIA
 from app.screens import assignments as screens
+from app.services.attachments import attachments_for_request
+from app.services.thread import store_thread_message
 from app.states.staff_actions import StaffActionStates
 from app.ui.anchor import render
 from app.utils.transient import send_transient
@@ -139,12 +143,13 @@ async def ask_completion_note(
     await state.update_data(rid=request.id, page=callback_data.page)
     await send_transient(
         bot, redis, arq_pool, callback.message.chat.id,
-        f"✍️ {request.display_number} — bajarilgan ish haqida qisqacha izoh yozing:",
-        ttl=120,
+        f"✍️ {request.display_number} — bajarilgan ish haqida hisobot qoldiring.\n"
+        "Yozib yuborishingiz, ovozli xabar, video yoki rasm jo'natishingiz mumkin.",
+        ttl=180,
     )
 
 
-@router.message(StaffActionStates.awaiting_completion_note, F.text)
+@router.message(StaffActionStates.awaiting_completion_note, F.text | HAS_MEDIA)
 async def complete_request(
     message: Message,
     state: FSMContext,
@@ -162,10 +167,23 @@ async def complete_request(
         await state.clear()
         return
 
+    # The report is stored as a normal thread message so any media it carries hangs off
+    # something, and so the requester can read it in the conversation like any other reply.
+    # ``completion_note`` keeps the text alone, because that is what the lists and the web
+    # interface print.
+    row, attachment = await store_thread_message(
+        session, bot, message,
+        request_id=request.id,
+        employee_id=employee.id,
+        visibility=MessageVisibility.TO_REQUESTER,
+    )
+
     previous = request.status
     request.status = RequestStatus.COMPLETED.value
     request.completed_at = datetime.now(timezone.utc)
-    request.completion_note = (message.text or "").strip()
+    request.completion_note = row.body or (
+        f"{describe_attachments([attachment])} bilan hisobot" if attachment else "Bajarildi"
+    )
     session.add(
         RequestStatusHistory(
             request_id=request.id,
@@ -178,14 +196,54 @@ async def complete_request(
     await session.flush()
     await state.clear()
 
-    await arq_pool.enqueue_job("send_completion_notification", request.id)
+    # Commit before queueing: the worker reads the report back by id in its own session.
+    await session.commit()
+    await arq_pool.enqueue_job("send_completion_notification", request.id, row.id)
 
     screen = await screens.build_list(session, employee, page)
-    await render(bot, redis, message.chat.id, screen)
+    await render(bot, redis, message.chat.id, screen, force_new=True)
     await send_transient(
         bot, redis, arq_pool, message.chat.id,
         f"✅ {request.display_number} bajarildi. Murojaatchiga xabar yuborildi.",
     )
+
+
+@router.callback_query(AsgCB.filter(F.act == "files"))
+async def resend_files(
+    callback: CallbackQuery,
+    callback_data: AsgCB,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+) -> None:
+    """Replay every file on the request into the staffer's chat, on demand.
+
+    The assignment notification already pushes them once, but that message scrolls away
+    while the job is being worked; being able to pull the evidence back up without
+    hunting through the chat is the difference between the bot being usable on site or not.
+    """
+    await callback.answer()
+    if callback.message is None:
+        return
+
+    request = await _guard(callback, session, employee, callback_data.rid)
+    if request is None:
+        return
+
+    files = await attachments_for_request(session, request.id)
+    if not files:
+        await callback.answer("Bu murojaatda fayl yo'q.", show_alert=True)
+        return
+
+    await send_attachments(
+        bot, callback.message.chat.id, files,
+        caption=f"📎 <b>{request.display_number}</b> — biriktirilgan materiallar",
+    )
+    # The files land below the anchor, so move the screen back to the bottom.
+    screen = await screens.build_detail(session, employee, request.id, callback_data.page)
+    if screen:
+        await render(bot, redis, callback.message.chat.id, screen, force_new=True)
 
 
 @router.callback_query(AsgCB.filter(F.act == "msg"))
@@ -211,8 +269,9 @@ async def ask_message_to_requester(
     await state.update_data(rid=request.id, page=callback_data.page)
     await send_transient(
         bot, redis, arq_pool, callback.message.chat.id,
-        f"✍️ {request.display_number} — murojaatchiga yuboriladigan xabarni yozing:",
-        ttl=120,
+        f"✍️ {request.display_number} — murojaatchiga xabar yuboring.\n"
+        "Matn, ovozli xabar, video yoki rasm — barchasi mumkin.",
+        ttl=180,
     )
 
 
@@ -239,6 +298,7 @@ async def ask_internal_note(
     await state.update_data(rid=request.id, page=callback_data.page)
     await send_transient(
         bot, redis, arq_pool, callback.message.chat.id,
-        f"🗂 {request.display_number} — ichki izoh (murojaatchi ko'rmaydi):",
-        ttl=120,
+        f"🗂 {request.display_number} — ichki izoh (murojaatchi ko'rmaydi).\n"
+        "Matn, ovozli xabar yoki fayl yuborishingiz mumkin.",
+        ttl=180,
     )

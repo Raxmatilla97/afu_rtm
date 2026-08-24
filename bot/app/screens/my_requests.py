@@ -11,10 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
+from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Rating, Request, RequestMessage
 from app.callbacks import Nav, ReqCB
 from app.keyboards.common import menu_button
+from app.services.attachments import attachments_for_request
 from app.ui.anchor import Screen
+from app.ui.messages import format_message_body
 from app.ui.paging import PAGE_SIZE, offset_for, paging_row, total_pages
 
 THREAD_PAGE_SIZE = 5
@@ -112,12 +115,16 @@ async def build_detail(
         if request.completion_note:
             lines.append(f"Izoh: {request.completion_note}")
 
+    files = await attachments_for_request(session, rid, include_internal=False)
+    if files:
+        lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(files)}")
+
     messages = await _recent_messages(session, rid, DETAIL_PREVIEW_MESSAGES)
     if messages:
         lines.append("\n<b>Oxirgi xabarlar:</b>")
         for msg, author in reversed(messages):
             who = "Siz" if author and author.id == employee.id else (author.full_name if author else "RTM")
-            lines.append(f"• <i>{who}:</i> {_ellipsis(msg.body, 80)}")
+            lines.append(f"• <i>{who}:</i> {_ellipsis(_preview_of(msg), 80)}")
 
     rating = (
         await session.execute(select(Rating).where(Rating.request_id == rid))
@@ -133,6 +140,15 @@ async def build_detail(
             ),
         ]
     ]
+    if files:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"📎 Materiallarni ko'rish ({len(files)})",
+                    callback_data=ReqCB(act="files", rid=rid, page=page).pack(),
+                )
+            ]
+        )
     if request.status == RequestStatus.COMPLETED.value and rating is None:
         rows.append(
             [
@@ -210,7 +226,7 @@ async def build_thread(
     lines = [f"🧵 <b>{request.display_number}</b> — yozishmalar\n"]
     for msg, author in reversed(rows_data):
         who = "👤 Siz" if author and author.id == employee.id else f"🛠 {author.full_name if author else 'RTM'}"
-        lines.append(f"{who} · <i>{_fmt_dt(msg.created_at)}</i>\n{msg.body}\n")
+        lines.append(f"{who} · <i>{_fmt_dt(msg.created_at)}</i>\n{format_message_body(msg)}\n")
 
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     nav = paging_row(
@@ -280,6 +296,16 @@ async def _recent_messages(
             )
         ).all()
     )
+
+
+def _preview_of(message: RequestMessage) -> str:
+    """One plain line for the detail screen — no markup, since it is already inside an
+    italic run and nested tags would break the parse."""
+    if message.body:
+        return message.body
+    if message.attachments:
+        return describe_attachments(message.attachments)
+    return "—"
 
 
 def _ellipsis(text: str, limit: int) -> str:

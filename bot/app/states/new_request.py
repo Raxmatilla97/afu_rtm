@@ -5,4 +5,4 @@ class NewRequestStates(StatesGroup):
     awaiting_category = State()
     awaiting_description = State()
     awaiting_attachment_choice = State()
-    awaiting_photo = State()
+    awaiting_media = State()

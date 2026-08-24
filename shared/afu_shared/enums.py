@@ -19,6 +19,23 @@ class MessageVisibility(StrEnum):
     TO_REQUESTER = "to_requester"
 
 
+class AttachmentKind(StrEnum):
+    """What an attachment is, in Telegram's vocabulary.
+
+    Stored rather than derived from the MIME type because the distinctions that matter to
+    us are Telegram's, not the file system's: a ``voice`` and an ``audio`` are both OGG/MP3,
+    and a ``video_note`` (the round video) is an ordinary MP4 — but each has to be re-sent
+    through a different Bot API method to arrive looking the way the sender meant it.
+    """
+
+    PHOTO = "photo"
+    VIDEO = "video"
+    VOICE = "voice"
+    VIDEO_NOTE = "video_note"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+
+
 class TelegramLinkPurpose(StrEnum):
     INITIAL_VERIFICATION = "initial_verification"
     WEB_LOGIN = "web_login"

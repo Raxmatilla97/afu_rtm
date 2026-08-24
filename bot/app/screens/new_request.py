@@ -35,7 +35,8 @@ def build_description_screen(category_label: str) -> Screen:
     return Screen(
         text=(
             f"🆕 <b>Yangi murojaat</b>\nTuri: {category_label}\n\n"
-            "Endi muammoni qisqacha yozib yuboring.\n"
+            "Muammoni tushuntiring — <b>yozib</b> yoki <b>ovozli xabar</b>, "
+            "<b>video</b>, <b>aylana video</b> yuborib.\n"
             "<i>Masalan: 3-qavat 305-xonadagi printer qog'oz tortmayapti.</i>"
         ),
         keyboard=InlineKeyboardMarkup(inline_keyboard=[CANCEL_ROW]),
@@ -47,7 +48,7 @@ def build_attachment_choice_screen(category_label: str, description: str) -> Scr
         text=(
             f"🆕 <b>Yangi murojaat</b>\nTuri: {category_label}\n\n"
             f"<b>Tavsif:</b>\n{description}\n\n"
-            "Rasm biriktirasizmi?"
+            "Fayl biriktirasizmi? (rasm, video, ovozli xabar, hujjat)"
         ),
         keyboard=InlineKeyboardMarkup(
             inline_keyboard=[
@@ -65,23 +66,30 @@ def build_attachment_choice_screen(category_label: str, description: str) -> Scr
     )
 
 
-def build_photo_screen(display_number: str, photo_count: int) -> Screen:
-    counter = f"\n\nQabul qilindi: {photo_count} ta rasm" if photo_count else ""
+def build_media_screen(display_number: str, summary: str) -> Screen:
+    """The prompt that follows every uploaded file.
+
+    Re-rendered with ``force_new`` after each upload so it lands *underneath* the file the
+    user just sent — when it was edited in place it stayed wherever the flow began, and the
+    "Tayyor" button scrolled out of reach as the uploads piled up.
+    """
+    counter = f"\n\n<b>Qabul qilindi:</b> {summary}" if summary else ""
     return Screen(
         text=(
             f"📎 <b>{display_number}</b>{counter}\n\n"
-            "Rasmlarni yuboring. Tugagach «Tayyor» ni bosing."
+            "Yana fayl yuborishingiz mumkin — rasm, video, ovozli xabar yoki hujjat.\n"
+            "Tugagach «✅ Tayyor» ni bosing."
         ),
         keyboard=InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Tayyor", callback_data=FlowCB(act="photos_done").pack())]
+                [InlineKeyboardButton(text="✅ Tayyor", callback_data=FlowCB(act="media_done").pack())]
             ]
         ),
     )
 
 
-def build_submitted_screen(display_number: str, photo_count: int, rid: int) -> Screen:
-    extra = f"\nBiriktirilgan fayllar: {photo_count} ta" if photo_count else ""
+def build_submitted_screen(display_number: str, summary: str, rid: int) -> Screen:
+    extra = f"\nBiriktirilgan: {summary}" if summary else ""
     return Screen(
         text=(
             f"✅ <b>Murojaatingiz qabul qilindi!</b>\n\n"

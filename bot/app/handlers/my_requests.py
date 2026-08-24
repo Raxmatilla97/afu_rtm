@@ -9,9 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import MessageVisibility, RequestStatus
-from afu_shared.models import Employee, Rating, Request, RequestMessage
+from afu_shared.media import send_attachments
+from afu_shared.models import Employee, Rating, Request
 from app.callbacks import ReqCB
+from app.filters.media import HAS_MEDIA
 from app.screens import my_requests as screens
+from app.services.attachments import attachments_for_request
+from app.services.thread import store_thread_message
 from app.states.staff_actions import RequesterStates
 from app.ui.anchor import render
 from app.utils.transient import send_transient
@@ -89,12 +93,13 @@ async def ask_reply(
     await state.update_data(rid=callback_data.rid, page=callback_data.page)
     await send_transient(
         bot, redis, arq_pool, callback.message.chat.id,
-        f"✍️ {request.display_number} bo'yicha xabaringizni yozing:",
-        ttl=120,
+        f"✍️ {request.display_number} bo'yicha xabaringizni yuboring.\n"
+        "Yozishingiz yoki ovozli xabar, video, rasm jo'natishingiz mumkin.",
+        ttl=180,
     )
 
 
-@router.message(RequesterStates.awaiting_reply_body, F.text)
+@router.message(RequesterStates.awaiting_reply_body, F.text | HAS_MEDIA)
 async def submit_reply(
     message: Message,
     state: FSMContext,
@@ -112,24 +117,63 @@ async def submit_reply(
         await state.clear()
         return
 
-    session.add(
-        RequestMessage(
-            request_id=rid,
-            author_employee_id=employee.id,
-            visibility=MessageVisibility.TO_REQUESTER.value,
-            body=(message.text or "").strip(),
-        )
+    row, _ = await store_thread_message(
+        session, bot, message,
+        request_id=rid,
+        employee_id=employee.id,
+        visibility=MessageVisibility.TO_REQUESTER,
     )
-    await session.flush()
     await state.clear()
 
+    # Commit before queueing. The worker looks the message up by id in its own session, and
+    # it is fast enough to get there before this handler returns and the session middleware
+    # commits — at which point it would find nothing and deliver nothing.
+    await session.commit()
+
     # Notify RTM through the worker, which owns the Bot client for outbound DMs.
-    await arq_pool.enqueue_job("notify_request_message", rid, employee.id)
+    await arq_pool.enqueue_job("notify_request_message", rid, employee.id, row.id)
 
     screen = await screens.build_detail(session, employee, rid, page)
     if screen:
-        await render(bot, redis, message.chat.id, screen)
+        await render(bot, redis, message.chat.id, screen, force_new=True)
     await send_transient(bot, redis, arq_pool, message.chat.id, "✅ Xabaringiz yuborildi.")
+
+
+@router.callback_query(ReqCB.filter(F.act == "files"))
+async def resend_files(
+    callback: CallbackQuery,
+    callback_data: ReqCB,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+) -> None:
+    """Send the requester every file on their request — theirs and RTM's replies alike.
+
+    Internal RTM notes are excluded at the query, not here: see
+    ``attachments_for_request(include_internal=False)``.
+    """
+    await callback.answer()
+    if callback.message is None:
+        return
+
+    request = await session.get(Request, callback_data.rid)
+    if request is None or request.requester_employee_id != employee.id:
+        await callback.answer("Murojaat topilmadi.", show_alert=True)
+        return
+
+    files = await attachments_for_request(session, request.id, include_internal=False)
+    if not files:
+        await callback.answer("Bu murojaatda fayl yo'q.", show_alert=True)
+        return
+
+    await send_attachments(
+        bot, callback.message.chat.id, files,
+        caption=f"📎 <b>{request.display_number}</b> — materiallar",
+    )
+    screen = await screens.build_detail(session, employee, request.id, callback_data.page)
+    if screen:
+        await render(bot, redis, callback.message.chat.id, screen, force_new=True)
 
 
 @router.callback_query(ReqCB.filter(F.act == "rate"))

@@ -6,10 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
+from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Request, RequestMessage
 from app.callbacks import AsgCB, Nav
 from app.keyboards.common import menu_button
+from app.services.attachments import attachments_for_request
 from app.ui.anchor import Screen
+from app.ui.messages import format_message_body
 from app.ui.paging import PAGE_SIZE, offset_for, paging_row, total_pages
 
 THREAD_PAGE_SIZE = 5
@@ -97,6 +100,10 @@ async def build_detail(
     lines.append(f"Muddat: {_fmt_dt(request.deadline_at)}")
     lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
 
+    files = await attachments_for_request(session, rid)
+    if files:
+        lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(files)}")
+
     rows: list[list[InlineKeyboardButton]] = []
     if request.status == RequestStatus.ASSIGNED.value:
         rows.append(
@@ -117,13 +124,19 @@ async def build_detail(
             ),
         ]
     )
-    rows.append(
-        [
+    thread_row = [
+        InlineKeyboardButton(
+            text="🧵 Yozishmalar", callback_data=AsgCB(act="thread", rid=rid, page=page).pack()
+        )
+    ]
+    if files:
+        thread_row.append(
             InlineKeyboardButton(
-                text="🧵 Yozishmalar", callback_data=AsgCB(act="thread", rid=rid, page=page).pack()
+                text=f"📎 Materiallar ({len(files)})",
+                callback_data=AsgCB(act="files", rid=rid, page=page).pack(),
             )
-        ]
-    )
+        )
+    rows.append(thread_row)
     rows.append(
         [
             InlineKeyboardButton(
@@ -188,7 +201,10 @@ async def build_thread(
         internal = msg.visibility == MessageVisibility.INTERNAL.value
         tag = "🗂 [ichki]" if internal else "💬"
         who = "Siz" if author and author.id == employee.id else (author.full_name if author else "—")
-        lines.append(f"{tag} <b>{who}</b> · <i>{_fmt_dt(msg.created_at)}</i>\n{msg.body}\n")
+        lines.append(
+            f"{tag} <b>{who}</b> · <i>{_fmt_dt(msg.created_at)}</i>\n"
+            f"{format_message_body(msg)}\n"
+        )
 
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     nav = paging_row(page, pages, lambda p: AsgCB(act="thread", rid=rid, page=p).pack())

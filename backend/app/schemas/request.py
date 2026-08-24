@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.schemas.employee import EmployeeResponse
+from afu_shared.media import kind_label
 
 
 class RequestCreate(BaseModel):
@@ -25,8 +25,52 @@ class RequestComplete(BaseModel):
 
 
 class RequestMessageCreate(BaseModel):
-    body: str
+    #: May be empty — a voice clip or a screenshot is a complete message on its own.
+    body: str = ""
     visibility: str = "to_requester"
+    #: Files already uploaded to this request that this message should own. The web client
+    #: uploads first and posts second, so that the message exists only once its files do —
+    #: otherwise the Telegram notification would go out describing an empty message and the
+    #: files would arrive attached to nothing.
+    attachment_ids: list[int] = []
+
+
+class RequestAttachmentResponse(BaseModel):
+    id: int
+    request_id: int
+    message_id: int | None = None
+    kind: str
+    kind_label: str
+    file_path: str | None
+    original_filename: str | None
+    content_type: str | None
+    file_size: int | None = None
+    duration_seconds: int | None = None
+    #: Same-origin path the browser can put straight into <img>, <video> or <audio>.
+    #: None when the file only ever existed as a Telegram handle (too large to download).
+    url: str | None = None
+    created_at: datetime
+
+    @classmethod
+    def from_attachment(cls, a) -> "RequestAttachmentResponse":
+        return cls(
+            id=a.id,
+            request_id=a.request_id,
+            message_id=a.message_id,
+            kind=a.kind,
+            kind_label=kind_label(a.kind),
+            file_path=a.file_path,
+            original_filename=a.original_filename,
+            content_type=a.content_type,
+            file_size=a.file_size,
+            duration_seconds=a.duration_seconds,
+            url=(
+                f"/api/requests/{a.request_id}/attachments/{a.id}"
+                if a.file_path
+                else None
+            ),
+            created_at=a.created_at,
+        )
 
 
 class RequestMessageResponse(BaseModel):
@@ -34,24 +78,62 @@ class RequestMessageResponse(BaseModel):
     request_id: int
     author_employee_id: int | None
     author_user_id: int | None
+    author_name: str | None = None
     visibility: str
-    body: str
+    body: str | None
+    attachments: list[RequestAttachmentResponse] = []
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    @classmethod
+    def from_message(
+        cls, m, *, author_name: str | None = None, attachments=None
+    ) -> "RequestMessageResponse":
+        """``attachments`` overrides the relationship.
+
+        Needed straight after creating a message: reading ``m.attachments`` there would be
+        a lazy load on an async session, which raises rather than quietly issuing a query.
+        The caller already holds the rows it just linked, so it passes them in.
+        """
+        files = m.attachments if attachments is None else attachments
+        return cls(
+            id=m.id,
+            request_id=m.request_id,
+            author_employee_id=m.author_employee_id,
+            author_user_id=m.author_user_id,
+            author_name=author_name,
+            visibility=m.visibility,
+            body=m.body,
+            attachments=[RequestAttachmentResponse.from_attachment(a) for a in files],
+            created_at=m.created_at,
+        )
 
 
-class RequestAttachmentResponse(BaseModel):
+class RequesterCard(BaseModel):
+    """Who reported the problem, in the detail the person handling it actually needs.
+
+    Bundled onto the request rather than fetched separately because it is never wanted on
+    its own: whoever opens a request needs to know within the same glance who to call.
+    """
+
     id: int
-    request_id: int
-    file_path: str
-    original_filename: str | None
-    content_type: str | None
-    created_at: datetime
+    full_name: str
+    employee_id_number: str | None = None
+    department_name: str | None = None
+    phone_number: str | None = None
+    telegram_username: str | None = None
+    image_local_path: str | None = None
 
-    class Config:
-        from_attributes = True
+    @classmethod
+    def from_employee(cls, e) -> "RequesterCard":
+        return cls(
+            id=e.id,
+            full_name=e.full_name,
+            employee_id_number=e.employee_id_number,
+            department_name=e.department.name if e.department else None,
+            phone_number=e.phone_number,
+            telegram_username=e.telegram_username,
+            image_local_path=e.image_local_path,
+        )
 
 
 class RequestResponse(BaseModel):
@@ -59,6 +141,7 @@ class RequestResponse(BaseModel):
     display_number: str
     requester_employee_id: int
     requester_name: str | None = None
+    requester: RequesterCard | None = None
     category_slug: str
     category_label: str | None = None
     description: str
@@ -82,6 +165,7 @@ class RequestResponse(BaseModel):
             display_number=r.display_number,
             requester_employee_id=r.requester_employee_id,
             requester_name=r.requester.full_name if r.requester else None,
+            requester=RequesterCard.from_employee(r.requester) if r.requester else None,
             category_slug=r.category_slug,
             category_label=r.category.label_uz if r.category else None,
             description=r.description,

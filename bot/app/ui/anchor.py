@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardMarkup
 from redis.asyncio import Redis
 
@@ -75,6 +75,12 @@ async def render(
     except TelegramForbiddenError:
         logger.info("Cannot send anchor to chat %s: bot blocked", chat_id)
         return None
+    except TelegramRetryAfter as exc:
+        # Uploading an album re-anchors once per file, which can brush the flood limit.
+        # Losing one intermediate screen is fine; raising here would abort the handler and
+        # lose the upload it was confirming.
+        logger.info("Flood limit hit while re-anchoring chat %s (retry after %s)", chat_id, exc.retry_after)
+        return None
 
     await redis.set(_key(chat_id), sent.message_id, ex=ANCHOR_TTL_SECONDS)
     return sent.message_id
@@ -84,7 +90,7 @@ async def _delete_quietly(bot: Bot, chat_id: int, message_id: int) -> None:
     """Best-effort delete. Already gone, older than 48h, or blocked — all fine to ignore."""
     try:
         await bot.delete_message(chat_id, message_id)
-    except (TelegramBadRequest, TelegramForbiddenError):
+    except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter):
         logger.debug("Could not delete old anchor %s in chat %s", message_id, chat_id)
 
 

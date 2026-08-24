@@ -1,11 +1,13 @@
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.enums import MessageVisibility, RequestSource, RequestStatus
+from afu_shared.enums import AttachmentKind, MessageVisibility, RequestSource, RequestStatus
 from afu_shared.models import Employee, Rating, Request, RequestAttachment, RequestMessage, RequestStatusHistory, User
 from afu_shared.settings import settings
 from app.arq_pool import get_arq_pool
@@ -23,6 +25,11 @@ from app.schemas.request import (
 )
 
 router = APIRouter(prefix="/requests", tags=["requests"])
+
+#: Kept in step with ``client_max_body_size`` in deploy/frontend-nginx.conf — nginx would
+#: otherwise reject the request before FastAPI ever sees it, and the user would get a bare
+#: 413 page instead of a readable message.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 async def _get_request_or_404(session: AsyncSession, request_id: int) -> Request:
@@ -144,6 +151,14 @@ async def assign_request(
         )
     )
     await session.flush()
+
+    # Commit before the job is queued: the worker reads the request back from the database
+    # in its own session, and a job that overtakes this transaction would find the old
+    # assignee (or none at all).
+    await session.commit()
+    pool = await get_arq_pool()
+    await pool.enqueue_job("notify_request_assigned", request.id)
+
     await session.refresh(request)
     return RequestResponse.from_request(request)
 
@@ -208,6 +223,7 @@ async def complete_request(
         )
     )
     await session.flush()
+    await session.commit()
 
     pool = await get_arq_pool()
     await pool.enqueue_job("send_completion_notification", request.id)
@@ -221,17 +237,25 @@ async def list_messages(
     request_id: int,
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
-) -> list[RequestMessage]:
+) -> list[RequestMessageResponse]:
     request = await _get_request_or_404(session, request_id)
     _check_can_view(request, caller)
 
-    stmt = select(RequestMessage).where(RequestMessage.request_id == request_id)
+    stmt = (
+        select(RequestMessage, Employee)
+        .outerjoin(Employee, RequestMessage.author_employee_id == Employee.id)
+        .where(RequestMessage.request_id == request_id)
+    )
     if isinstance(caller, Employee) and not caller.is_rtm_staff:
         stmt = stmt.where(RequestMessage.visibility == MessageVisibility.TO_REQUESTER.value)
     stmt = stmt.order_by(RequestMessage.created_at)
 
-    result = await session.execute(stmt)
-    return list(result.scalars())
+    return [
+        RequestMessageResponse.from_message(
+            message, author_name=author.full_name if author else None
+        )
+        for message, author in (await session.execute(stmt)).all()
+    ]
 
 
 @router.post("/{request_id}/messages", response_model=RequestMessageResponse)
@@ -240,42 +264,177 @@ async def post_message(
     payload: RequestMessageCreate,
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
-) -> RequestMessage:
+) -> RequestMessageResponse:
     request = await _get_request_or_404(session, request_id)
     _check_can_view(request, caller)
 
     if isinstance(caller, Employee) and not caller.is_rtm_staff and payload.visibility != MessageVisibility.TO_REQUESTER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
 
+    body = payload.body.strip() or None
+    if body is None and not payload.attachment_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Xabar bo'sh bo'lishi mumkin emas"
+        )
+
     message = RequestMessage(
         request_id=request_id,
         author_employee_id=caller.id if isinstance(caller, Employee) else None,
         author_user_id=caller.id if isinstance(caller, User) else None,
         visibility=payload.visibility,
-        body=payload.body,
+        body=body,
     )
     session.add(message)
     await session.flush()
+
+    owned: list[RequestAttachment] = []
+    if payload.attachment_ids:
+        # Only unclaimed files on this same request, so one message cannot steal another's
+        # attachments by guessing ids.
+        owned = list(
+            (
+                await session.execute(
+                    select(RequestAttachment).where(
+                        RequestAttachment.id.in_(payload.attachment_ids),
+                        RequestAttachment.request_id == request_id,
+                        RequestAttachment.message_id.is_(None),
+                    )
+                )
+            ).scalars()
+        )
+        for attachment in owned:
+            attachment.message_id = message.id
+        await session.flush()
+
+    await session.commit()
+
+    # A message written on the web has to reach the other party's Telegram, exactly like
+    # one written in the bot. Without this the two interfaces looked identical but only one
+    # of them actually delivered anything.
+    # None for an admin: they have no employee row, and the worker reads that as
+    # "written by RTM", which is the right direction for them.
+    pool = await get_arq_pool()
+    await pool.enqueue_job(
+        "notify_request_message",
+        request_id,
+        caller.id if isinstance(caller, Employee) else None,
+        message.id,
+    )
+
     await session.refresh(message)
-    return message
+    author_name = caller.full_name if isinstance(caller, Employee) else None
+    return RequestMessageResponse.from_message(
+        message, author_name=author_name, attachments=owned
+    )
 
 
 @router.get("/{request_id}/attachments/{attachment_id}")
 async def download_attachment(
     request_id: int,
     attachment_id: int,
+    download: bool = False,
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
 ):
+    """Serve one attachment.
+
+    Inline by default so the browser can play it in place — a voice reply is only useful
+    if it plays where it was written, and forcing every file through a download would make
+    the web thread strictly worse than the Telegram one. ``?download=1`` restores the
+    save-to-disk behaviour for anything the reader wants to keep.
+    """
     request = await _get_request_or_404(session, request_id)
     _check_can_view(request, caller)
 
     attachment = await session.get(RequestAttachment, attachment_id)
     if not attachment or attachment.request_id != request_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+    if not attachment.file_path:
+        # Over the Bot API download ceiling: it lives in Telegram only.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File is only available in Telegram"
+        )
 
-    full_path = f"{settings.storage_root}/{attachment.file_path}"
-    return FileResponse(full_path, filename=attachment.original_filename or "file")
+    full_path = Path(settings.storage_root) / attachment.file_path
+    if not full_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File missing on disk")
+
+    name = attachment.original_filename or full_path.name
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        full_path,
+        media_type=attachment.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{_ascii_filename(name)}"'},
+    )
+
+
+def _ascii_filename(name: str) -> str:
+    """Content-Disposition is a latin-1 header; a Cyrillic filename would break it."""
+    return name.encode("ascii", "replace").decode("ascii").replace('"', "_")
+
+
+@router.post("/{request_id}/attachments", response_model=RequestAttachmentResponse)
+async def upload_attachment(
+    request_id: int,
+    file: UploadFile = File(...),
+    message_id: int | None = Form(default=None),
+    caller: User | Employee = Depends(get_current_caller),
+    session: AsyncSession = Depends(get_db),
+) -> RequestAttachmentResponse:
+    """Attach a file from the web interface."""
+    request = await _get_request_or_404(session, request_id)
+    _check_can_view(request, caller)
+    if not isinstance(caller, Employee):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only employees can attach files"
+        )
+
+    payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Fayl hajmi {MAX_UPLOAD_BYTES // (1024 * 1024)} MB dan oshmasligi kerak",
+        )
+
+    if message_id is not None:
+        owner = await session.get(RequestMessage, message_id)
+        if owner is None or owner.request_id != request_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown message"
+            )
+
+    suffix = Path(file.filename or "").suffix.lower()[:8] or ".bin"
+    stored_name = f"{uuid.uuid4().hex}{suffix}"
+    target_dir = Path(settings.storage_root) / "requests" / str(request_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / stored_name).write_bytes(payload)
+
+    attachment = RequestAttachment(
+        request_id=request_id,
+        message_id=message_id,
+        uploaded_by_employee_id=caller.id,
+        kind=_kind_for(file.content_type),
+        file_path=f"requests/{request_id}/{stored_name}",
+        original_filename=file.filename,
+        content_type=file.content_type,
+        file_size=len(payload),
+    )
+    session.add(attachment)
+    await session.flush()
+    await session.refresh(attachment)
+    return RequestAttachmentResponse.from_attachment(attachment)
+
+
+def _kind_for(content_type: str | None) -> str:
+    """Classify a web upload the way Telegram would classify the same file."""
+    mime = (content_type or "").lower()
+    if mime.startswith("image/"):
+        return AttachmentKind.PHOTO.value
+    if mime.startswith("video/"):
+        return AttachmentKind.VIDEO.value
+    if mime.startswith("audio/"):
+        return AttachmentKind.AUDIO.value
+    return AttachmentKind.DOCUMENT.value
 
 
 @router.post("/{request_id}/rating", response_model=RatingResponse)
@@ -318,10 +477,26 @@ async def list_attachments(
     request_id: int,
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
-) -> list[RequestAttachment]:
+) -> list[RequestAttachmentResponse]:
     request = await _get_request_or_404(session, request_id)
     _check_can_view(request, caller)
-    result = await session.execute(
-        select(RequestAttachment).where(RequestAttachment.request_id == request_id)
+
+    stmt = (
+        select(RequestAttachment)
+        .where(RequestAttachment.request_id == request_id)
+        .order_by(RequestAttachment.id)
     )
-    return list(result.scalars())
+    if isinstance(caller, Employee) and not caller.is_rtm_staff:
+        # Files hanging off an internal RTM note must not reach the requester. Mirrors the
+        # visibility filter on the message list.
+        stmt = stmt.outerjoin(
+            RequestMessage, RequestAttachment.message_id == RequestMessage.id
+        ).where(
+            (RequestAttachment.message_id.is_(None))
+            | (RequestMessage.visibility == MessageVisibility.TO_REQUESTER.value)
+        )
+
+    return [
+        RequestAttachmentResponse.from_attachment(a)
+        for a in (await session.execute(stmt)).scalars()
+    ]

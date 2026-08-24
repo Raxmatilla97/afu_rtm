@@ -1,44 +1,11 @@
-"""Typed callback data factories.
+"""Callback data factories — re-exported from ``afu_shared``.
 
-Replaces the previous flat ``prefix:arg`` strings, which were matched with ``startswith``
-and so were one naming choice away from colliding (``req:`` vs ``req_start:``). Prefixes are
-kept to one character because callback_data is capped at 64 bytes.
+They live in ``shared`` because the worker builds buttons too: the completion notice and
+the new assignment DM both carry callbacks that this bot has to route. When the factories
+lived here the worker hand-wrote the packed strings ("a:open:12:1"), which meant a field
+added on this side silently produced buttons that no longer parsed on the other.
 """
 
-from aiogram.filters.callback_data import CallbackData
+from afu_shared.callbacks import AsgCB, CatCB, FlowCB, Nav, ReqCB, StatCB
 
-
-class Nav(CallbackData, prefix="n"):
-    """Pure navigation between screens."""
-
-    to: str  # menu | help | login | myreq | assign | stats | newreq | noop
-    page: int = 1
-
-
-class ReqCB(CallbackData, prefix="r"):
-    """Requester-side actions on their own request."""
-
-    act: str  # open | thread | reply | rate | rate_set | back
-    rid: int = 0
-    page: int = 1
-    score: int = 0
-
-
-class AsgCB(CallbackData, prefix="a"):
-    """RTM-staff actions on an assigned request."""
-
-    act: str  # open | thread | start | complete | msg | internal | back
-    rid: int = 0
-    page: int = 1
-
-
-class CatCB(CallbackData, prefix="c"):
-    """Category choice while creating a request."""
-
-    slug: str
-
-
-class FlowCB(CallbackData, prefix="f"):
-    """Steps inside the new-request flow."""
-
-    act: str  # attach_yes | attach_no | photos_done | cancel
+__all__ = ["AsgCB", "CatCB", "FlowCB", "Nav", "ReqCB", "StatCB"]

@@ -47,11 +47,40 @@ export interface Category {
   sort_order: number;
 }
 
+export type AttachmentKind = "photo" | "video" | "voice" | "video_note" | "audio" | "document";
+
+export interface RequestAttachmentItem {
+  id: number;
+  request_id: number;
+  message_id: number | null;
+  kind: AttachmentKind;
+  kind_label: string;
+  file_path: string | null;
+  original_filename: string | null;
+  content_type: string | null;
+  file_size: number | null;
+  duration_seconds: number | null;
+  /** Same-origin path for <img>/<video>/<audio>. Null when the file lives only in Telegram. */
+  url: string | null;
+  created_at: string;
+}
+
+export interface RequesterCard {
+  id: number;
+  full_name: string;
+  employee_id_number: string | null;
+  department_name: string | null;
+  phone_number: string | null;
+  telegram_username: string | null;
+  image_local_path: string | null;
+}
+
 export interface RequestItem {
   id: number;
   display_number: string;
   requester_employee_id: number;
   requester_name: string | null;
+  requester: RequesterCard | null;
   category_slug: string;
   category_label: string | null;
   description: string;
@@ -71,8 +100,10 @@ export interface RequestMessageItem {
   request_id: number;
   author_employee_id: number | null;
   author_user_id: number | null;
+  author_name: string | null;
   visibility: "internal" | "to_requester";
-  body: string;
+  body: string | null;
+  attachments: RequestAttachmentItem[];
   created_at: string;
 }
 

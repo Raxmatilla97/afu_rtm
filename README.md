@@ -41,11 +41,16 @@ Alfraganus University Raqamliy texnologiyalar markazi (RTM) uchun ichki murojaat
 1. Admin HEMIS sinxronizatsiyasini ishga tushiradi → bo'limlar va faol xodimlar (status `11`) import qilinadi.
 2. Admin kerakli xodimlarni **Xodimlar** sahifasida "RTM xodimi" deb belgilaydi.
 3. Oddiy xodim Telegram botga (`/start`) yoki veb-interfeysga ("Men xodimman") kirib, HEMIS ID raqami orqali shaxsini tasdiqlaydi (Telegram orqali kontakt ulashish talab qilinadi).
-4. Tasdiqlangan xodim murojaat yaratadi (bot yoki veb).
+4. Tasdiqlangan xodim murojaat yaratadi (bot yoki veb). Muammoni yozib ham, **ovozli xabar**, **video**, **aylana video**, rasm yoki hujjat yuborib ham tushuntirishi mumkin.
 5. Admin murojaatni RTM xodimiga tayinlaydi, muddat belgilaydi.
-6. RTM xodimi botda ishni boshlaydi, murojaatchi bilan yozishadi, ichki muhokama qiladi, bajarilgach izoh bilan yopadi.
-7. Murojaatchiga bildirishnoma boradi, u 1–5 baho qo'yadi.
-8. **Top xodimlar** va **Statistika** sahifalarida natijalar ko'rinadi.
+6. Tayinlangan xodimga Telegramda to'liq brifing keladi: murojaatchi (bo'lim, telefon, Telegram), muddat, tavsif — va murojaatchi yuborgan **barcha materiallar o'z ko'rinishida** qayta yuboriladi (ovozli xabar ovozli xabar bo'lib, aylana video aylana bo'lib qoladi).
+7. RTM xodimi botda ishni boshlaydi, murojaatchi bilan yozishadi (matn yoki media), ichki muhokama qiladi, bajarilgach hisobot bilan yopadi — hisobotni ham ovozli xabar yoki video ko'rinishida qoldirishi mumkin.
+8. Murojaatchiga bildirishnoma va hisobot materiallari boradi, u 1–5 baho qo'yadi.
+9. **Top xodimlar** va **Statistika** sahifalarida natijalar ko'rinadi. Botdagi statistika bo'limlarga bo'lingan (Umumiy / Men / Ishim / Top) va diagrammalar bilan ko'rsatiladi.
+
+### Materiallar qanday saqlanadi
+
+Har bir fayl ikki xil saqlanadi: **diskda** (`STORAGE_ROOT` — veb-interfeys shu nusxani ko'rsatadi) va **Telegram `file_id`** sifatida. Botning har qanday qayta yuborishi `file_id` orqali ketadi — bu tezkor va fayl turi (ovozli xabar, aylana video) o'zgarmaydi. 20 MB dan katta fayllarni Bot API yuklab bera olmaydi: bunday fayl faqat Telegramda qoladi, veb-interfeysda esa "faqat Telegramda mavjud" deb ko'rsatiladi.
 
 ## Ishlab chiqish
 

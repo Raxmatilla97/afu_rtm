@@ -4,7 +4,11 @@ from arq.connections import RedisSettings
 
 from afu_shared.settings import settings
 from app.tasks.hemis_sync import hemis_sync_task
-from app.tasks.notifications import notify_request_message, send_completion_notification
+from app.tasks.notifications import (
+    notify_request_assigned,
+    notify_request_message,
+    send_completion_notification,
+)
 from app.tasks.oauth import notify_oauth_login_complete
 from app.tasks.transient_cleanup import delete_telegram_message
 
@@ -17,6 +21,7 @@ class WorkerSettings:
         delete_telegram_message,
         send_completion_notification,
         notify_request_message,
+        notify_request_assigned,
         notify_oauth_login_complete,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)

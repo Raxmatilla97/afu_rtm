@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -5,6 +7,9 @@ from afu_shared.models.base import Base
 from afu_shared.models.employee import Employee
 from afu_shared.models.request import Request
 from afu_shared.models.user import User
+
+if TYPE_CHECKING:
+    from afu_shared.models.request_attachment import RequestAttachment
 
 
 class RequestMessage(Base):
@@ -25,8 +30,18 @@ class RequestMessage(Base):
     author_user: Mapped["User | None"] = relationship("User")
 
     visibility: Mapped[str] = mapped_column(String, nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Nullable since messages carry media: a voice note or a round video is a complete
+    #: message on its own, and forcing an empty string there would make "no text" and
+    #: "text the author deleted" indistinguishable.
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    attachments: Mapped[list["RequestAttachment"]] = relationship(
+        "RequestAttachment",
+        back_populates="message",
+        lazy="selectin",
+        order_by="RequestAttachment.id",
+    )
 
     created_at = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee
-from app.callbacks import Nav
+from app.callbacks import Nav, StatCB
 from app.middlewares.identity import AuthState
 from app.screens import assignments, menu, my_requests, new_request, stats
 from app.screens.auth import show_auth_screen
@@ -127,6 +127,24 @@ async def navigate(
         screen = menu.build_menu(employee)
 
     await render(bot, redis, chat_id, screen)
+
+
+@router.callback_query(StatCB.filter())
+async def switch_stats_tab(
+    callback: CallbackQuery,
+    callback_data: StatCB,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await render(
+        bot, redis, callback.message.chat.id,
+        await stats.build_stats(session, employee, callback_data.view),
+    )
 
 
 @router.callback_query(F.data == "noop")

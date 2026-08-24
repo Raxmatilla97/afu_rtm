@@ -1,23 +1,42 @@
 """New-request flow."""
 
-import uuid
-from pathlib import Path
-
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from arq import ArqRedis
 from redis.asyncio import Redis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.enums import RequestSource, RequestStatus
-from afu_shared.models import Category, Employee, Request, RequestAttachment, RequestStatusHistory
-from afu_shared.settings import settings
+from afu_shared.enums import AttachmentKind, RequestSource, RequestStatus
+from afu_shared.media import describe_attachments, extract_media, persist_media
+from afu_shared.models import (
+    Category,
+    Employee,
+    Request,
+    RequestAttachment,
+    RequestStatusHistory,
+)
 from app.callbacks import CatCB, FlowCB
+from app.filters.media import HAS_MEDIA
 from app.screens import new_request as screens
 from app.states.new_request import NewRequestStates
 from app.ui.anchor import render
+from app.utils.transient import send_transient
 
 router = Router(name="new_request")
+
+#: Stand-in description when the whole request arrives as a voice note or video and the
+#: sender added no caption. Something has to go in ``description`` — it is what every list
+#: screen and notification shows — and naming the medium is more use than an empty line.
+_MEDIA_ONLY_DESCRIPTION = {
+    AttachmentKind.VOICE: "🎤 Ovozli murojaat",
+    AttachmentKind.VIDEO_NOTE: "⭕️ Video xabar orqali murojaat",
+    AttachmentKind.VIDEO: "🎬 Video murojaat",
+    AttachmentKind.AUDIO: "🎵 Audio murojaat",
+    AttachmentKind.PHOTO: "🖼 Rasm bilan murojaat",
+    AttachmentKind.DOCUMENT: "📄 Fayl bilan murojaat",
+}
 
 
 @router.callback_query(NewRequestStates.awaiting_category, CatCB.filter())
@@ -60,6 +79,39 @@ async def enter_description(
     )
 
 
+@router.message(NewRequestStates.awaiting_description, HAS_MEDIA)
+async def describe_with_media(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+) -> None:
+    """The request itself arrived as a voice note, a video, or a photo.
+
+    Not everyone can comfortably type out a fault on a phone, so the medium the user
+    reached for first is accepted as the submission. The request is created immediately and
+    the flow continues straight into the attachment step — the file is already the first
+    attachment, so asking "do you want to attach something?" would be nonsense here.
+    """
+    payload = extract_media(message)
+    if payload is None:
+        return
+
+    data = await state.get_data()
+    description = payload.caption or _MEDIA_ONLY_DESCRIPTION.get(payload.kind, "Murojaat")
+    request = await _create_request(session, employee, {**data, "description": description})
+
+    await persist_media(
+        session, bot, message, request_id=request.id, employee_id=employee.id
+    )
+
+    await state.update_data(request_id=request.id, description=description)
+    await state.set_state(NewRequestStates.awaiting_media)
+    await _render_media_screen(session, bot, redis, message.chat.id, request)
+
+
 async def _create_request(
     session: AsyncSession, employee: Employee, data: dict
 ) -> Request:
@@ -85,6 +137,31 @@ async def _create_request(
     return request
 
 
+async def _attachments_of(session: AsyncSession, request_id: int) -> list[RequestAttachment]:
+    return list(
+        (
+            await session.execute(
+                select(RequestAttachment)
+                .where(RequestAttachment.request_id == request_id)
+                .order_by(RequestAttachment.id)
+            )
+        ).scalars()
+    )
+
+
+async def _render_media_screen(
+    session: AsyncSession, bot: Bot, redis: Redis, chat_id: int, request: Request
+) -> None:
+    summary = describe_attachments(await _attachments_of(session, request.id))
+    await render(
+        bot, redis, chat_id,
+        screens.build_media_screen(request.display_number, summary),
+        # Re-anchor so the prompt and its "Tayyor" button sit directly under the file the
+        # user just sent, instead of staying put while the uploads scroll past it.
+        force_new=True,
+    )
+
+
 @router.callback_query(NewRequestStates.awaiting_attachment_choice, FlowCB.filter(F.act == "attach_no"))
 async def attach_no(
     callback: CallbackQuery,
@@ -102,7 +179,7 @@ async def attach_no(
     await state.clear()
     await render(
         bot, redis, callback.message.chat.id,
-        screens.build_submitted_screen(request.display_number, 0, request.id),
+        screens.build_submitted_screen(request.display_number, "", request.id),
     )
 
 
@@ -120,15 +197,16 @@ async def attach_yes(
         return
 
     request = await _create_request(session, employee, await state.get_data())
-    await state.update_data(request_id=request.id, photo_count=0)
-    await state.set_state(NewRequestStates.awaiting_photo)
+    await state.update_data(request_id=request.id)
+    await state.set_state(NewRequestStates.awaiting_media)
     await render(
-        bot, redis, callback.message.chat.id, screens.build_photo_screen(request.display_number, 0)
+        bot, redis, callback.message.chat.id,
+        screens.build_media_screen(request.display_number, ""),
     )
 
 
-@router.message(NewRequestStates.awaiting_photo, F.photo)
-async def receive_photo(
+@router.message(NewRequestStates.awaiting_media, HAS_MEDIA)
+async def receive_media(
     message: Message,
     state: FSMContext,
     session: AsyncSession,
@@ -137,37 +215,50 @@ async def receive_photo(
     redis: Redis,
 ) -> None:
     data = await state.get_data()
-    request_id = data["request_id"]
+    request = await session.get(Request, data.get("request_id", 0))
+    if request is None:
+        # The draft is gone (restart, or a state left over from a deleted request); dropping
+        # out is better than crashing on a file the user just spent time recording.
+        await state.clear()
+        return
 
-    photo = message.photo[-1]
-    file = await bot.get_file(photo.file_id)
-    filename = f"{uuid.uuid4().hex}.jpg"
-    target_dir = Path(settings.storage_root) / "requests" / str(request_id)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    await bot.download_file(file.file_path, destination=target_dir / filename)
+    attachment = await persist_media(
+        session, bot, message, request_id=request.id, employee_id=employee.id
+    )
+    if attachment is None:
+        return
 
-    session.add(
-        RequestAttachment(
-            request_id=request_id,
-            uploaded_by_employee_id=employee.id,
-            file_path=f"requests/{request_id}/{filename}",
-            content_type="image/jpeg",
+    await _render_media_screen(session, bot, redis, message.chat.id, request)
+
+
+@router.message(NewRequestStates.awaiting_media, F.text)
+async def media_step_got_text(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    bot: Bot,
+    redis: Redis,
+    arq_pool: ArqRedis,
+) -> None:
+    """Typed text during the upload step extends the description rather than being lost."""
+    data = await state.get_data()
+    request = await session.get(Request, data.get("request_id", 0))
+    if request is None:
+        await state.clear()
+        return
+
+    extra = (message.text or "").strip()
+    if extra:
+        request.description = f"{request.description}\n{extra}"
+        await session.flush()
+        await send_transient(
+            bot, redis, arq_pool, message.chat.id, "📝 Izoh tavsifga qo'shildi."
         )
-    )
-    await session.flush()
-
-    photo_count = data.get("photo_count", 0) + 1
-    await state.update_data(photo_count=photo_count)
-
-    request = await session.get(Request, request_id)
-    await render(
-        bot, redis, message.chat.id,
-        screens.build_photo_screen(request.display_number, photo_count),
-    )
+    await _render_media_screen(session, bot, redis, message.chat.id, request)
 
 
-@router.callback_query(NewRequestStates.awaiting_photo, FlowCB.filter(F.act == "photos_done"))
-async def finish_photos(
+@router.callback_query(NewRequestStates.awaiting_media, FlowCB.filter(F.act == "media_done"))
+async def finish_media(
     callback: CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
@@ -179,11 +270,14 @@ async def finish_photos(
         return
 
     data = await state.get_data()
-    request = await session.get(Request, data["request_id"])
+    request = await session.get(Request, data.get("request_id", 0))
+    if request is None:
+        await state.clear()
+        return
+    summary = describe_attachments(await _attachments_of(session, request.id))
     await state.clear()
+
     await render(
         bot, redis, callback.message.chat.id,
-        screens.build_submitted_screen(
-            request.display_number, data.get("photo_count", 0), request.id
-        ),
+        screens.build_submitted_screen(request.display_number, summary, request.id),
     )

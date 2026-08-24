@@ -6,21 +6,16 @@ The worker owns a Bot client, so it delivers the follow-up message instead.
 
 import logging
 
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from redis.asyncio import Redis
 
 from afu_shared.db import session_scope
 from afu_shared.labels import BTN_SHARE_CONTACT
 from afu_shared.models import Employee
-from afu_shared.settings import settings
+from app.anchor import claim_anchor, drop_anchor
 from app.bot_client import get_bot
 
 logger = logging.getLogger(__name__)
-
-#: Mirrors ``bot/app/ui/anchor.py``. The worker cannot import the bot package, and the key
-#: is the whole contract, so it is repeated rather than shared.
-ANCHOR_KEY_TMPL = "bot:anchor:{chat_id}"
 
 
 def _contact_keyboard() -> ReplyKeyboardMarkup:
@@ -29,28 +24,6 @@ def _contact_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         one_time_keyboard=True,
     )
-
-
-async def _drop_stale_anchor(chat_id: int) -> None:
-    """Remove the bot's login screen once the login has actually happened.
-
-    Otherwise the anchor keeps showing "🔐 HEMIS orqali kirish" above this message, and the
-    obvious thing to tap after a confusing login is that button — which starts the whole
-    flow over for a user who is already signed in. Dropping the anchor makes the bot mint a
-    fresh screen on the next interaction.
-    """
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    try:
-        key = ANCHOR_KEY_TMPL.format(chat_id=chat_id)
-        stored = await redis.get(key)
-        if stored:
-            try:
-                await get_bot().delete_message(chat_id, int(stored))
-            except (TelegramBadRequest, TelegramForbiddenError):
-                logger.debug("Stale anchor %s in chat %s already gone", stored, chat_id)
-            await redis.delete(key)
-    finally:
-        await redis.aclose()
 
 
 async def notify_oauth_login_complete(
@@ -65,24 +38,37 @@ async def notify_oauth_login_complete(
         already_onboarded = employee.verified_at is not None
         full_name = employee.full_name
 
-    if not already_onboarded:
-        # Private chat: the chat id is the user id. Only mid-onboarding is the anchor
-        # necessarily stale — for an already-verified user it is the main menu, which is
-        # still perfectly good and should not be thrown away.
-        await _drop_stale_anchor(telegram_user_id)
-
     bot = get_bot()
+
     if already_onboarded:
-        text = f"✅ Xush kelibsiz, {full_name}!\n\n/menu — asosiy menyu"
-        markup = None
-    else:
-        text = (
-            f"✅ HEMIS orqali tanildingiz: <b>{full_name}</b>\n\n"
-            "Oxirgi qadam: pastdagi tugma orqali telefon raqamingizni ulashing."
-        )
-        markup = _contact_keyboard()
+        # The anchor is the main menu and is still perfectly good — leave it alone.
+        try:
+            await bot.send_message(
+                telegram_user_id,
+                f"✅ Xush kelibsiz, {full_name}!\n\n/menu — asosiy menyu",
+                parse_mode="HTML",
+            )
+        except TelegramForbiddenError:
+            logger.warning("Cannot notify user %s after OAuth: bot blocked", telegram_user_id)
+        return
+
+    # Private chat: the chat id is the user id. Mid-onboarding the anchor still shows the
+    # HEMIS login button, which is exactly the wrong thing to tap next.
+    await drop_anchor(bot, telegram_user_id)
 
     try:
-        await bot.send_message(telegram_user_id, text, parse_mode="HTML", reply_markup=markup)
+        sent = await bot.send_message(
+            telegram_user_id,
+            f"✅ HEMIS orqali tanildingiz: <b>{full_name}</b>\n\n"
+            "Oxirgi qadam: pastdagi tugma orqali telefon raqamingizni ulashing.",
+            parse_mode="HTML",
+            reply_markup=_contact_keyboard(),
+        )
     except TelegramForbiddenError:
         logger.warning("Cannot notify user %s after OAuth: bot blocked", telegram_user_id)
+        return
+
+    # This prompt IS the current screen, so hand it to the bot as the anchor. The moment
+    # the contact arrives the bot re-renders with force_new, which deletes it — previously
+    # it was an ordinary message and stayed in the chat long after it stopped applying.
+    await claim_anchor(telegram_user_id, sent.message_id)

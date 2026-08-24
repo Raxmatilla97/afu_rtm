@@ -243,6 +243,34 @@ docker compose -f docker-compose.prod.yml up -d --build
 `--build` majburiy — konteynerlarda bind-mount yo'q, kod image ichida.
 BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
+Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
+biriktirmalari uchun `b2c9d41f7a08` migratsiyasi kerak — tekshirish:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend alembic current
+```
+
+---
+
+## 10a. Materiallar (rasm, video, ovozli xabar)
+
+Fayllar `afu_uploads` volume'ida (`/app/storage/requests/<id>/`) saqlanadi va uni
+`backend`, `bot`, `worker` — uchalasi ham mount qiladi. Bot yozgan faylni veb-interfeys
+shu volume orqali ko'rsatadi, shuning uchun bu uchtasi **bir xil volume'da** turishi shart.
+
+Cheklovlar:
+
+| Nima | Chegara | Qayerda belgilangan |
+|---|---|---|
+| Telegramdan yuklab olish | 20 MB | Bot API cheklovi (`MAX_DOWNLOAD_BYTES`) |
+| Vebdan yuklash | 25 MB | `MAX_UPLOAD_BYTES` + nginx `client_max_body_size` |
+
+20 MB dan katta fayl diskka tushmaydi, lekin Telegram `file_id` saqlanadi — bot uni
+qayta yubora oladi, veb esa "faqat Telegramda mavjud" deb ko'rsatadi. Nginx chegarasini
+o'zgartirsangiz, `deploy/frontend-nginx.conf` va `MAX_UPLOAD_BYTES` ni birga o'zgartiring.
+
+Zaxira nusxa olishda `afu_uploads` ni ham qamrab oling — 12-bo'limga qarang.
+
 ---
 
 ## 11. Loglar
