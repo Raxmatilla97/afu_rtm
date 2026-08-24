@@ -11,7 +11,6 @@ from aiogram.types import (
     KeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    WebAppInfo,
 )
 
 from afu_shared.labels import BTN_SHARE_CONTACT
@@ -31,15 +30,19 @@ def remove_keyboard() -> ReplyKeyboardRemove:
 
 
 def hemis_login_keyboard(login_url: str) -> InlineKeyboardMarkup:
-    """The HEMIS login button.
+    """The HEMIS login button — a plain URL button, deliberately NOT a Mini App.
 
-    ``web_app`` opens the flow inside Telegram's webview and requires an HTTPS URL, which
-    the production domain provides. If a client ever refuses to open it, swapping
-    ``web_app=WebAppInfo(url=...)`` for ``url=...`` falls back to the system browser.
+    This used to be ``web_app=WebAppInfo(url=...)``, and that is what made the login
+    unfinishable in practice. HEMIS hands the user off to One-ID and, on the way back,
+    drops them on their HEMIS profile instead of returning to ``/oauth/authorize`` — so the
+    login has to be re-entered once, now that a HEMIS session cookie exists. A Mini App
+    webview throws its cookie jar away when it closes, so every retry started from zero and
+    the user could loop forever. An ordinary browser keeps the session, so the second
+    attempt walks straight through to our callback.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔐 HEMIS orqali kirish", web_app=WebAppInfo(url=login_url))]
+            [InlineKeyboardButton(text="🔐 HEMIS orqali kirish", url=login_url)]
         ]
     )
 

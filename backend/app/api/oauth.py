@@ -9,6 +9,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -33,19 +34,31 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
-    """Self-contained end-of-flow page.
+#: Shared chrome for every page this module serves. These run in the user's ordinary
+#: browser (the bot's login button is a plain URL, not a Mini App), so the way back to
+#: Telegram is a t.me link — there is no webview to close.
+_PAGE_CSS = """
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background:#0f172a; color:#e2e8f0; padding:24px; text-align:center; }
+  .card { max-width:420px; }
+  .icon { font-size:56px; line-height:1; }
+  h1 { font-size:20px; margin:16px 0 8px; }
+  p { font-size:15px; line-height:1.5; color:#94a3b8; margin:0; }
+  .btn { display:inline-block; margin-top:24px; padding:13px 28px; font-size:16px;
+         border-radius:10px; background:#2563eb; color:#fff; text-decoration:none; }
+  .btn.secondary { background:#334155; color:#e2e8f0; font-size:15px; padding:11px 24px; }
+  .hint { margin-top:24px; padding:14px 16px; border-radius:10px; background:#1e293b;
+          font-size:14px; line-height:1.55; color:#cbd5e1; text-align:left; }
+"""
 
-    Served by the backend rather than the SPA so the bot login never depends on the
-    frontend build, and so an error can never surface as a raw stack trace.
-    """
-    icon = "✅" if ok else "⚠️"
-    # Only success auto-closes. An error page that closes itself is unreadable, which is
-    # exactly when the user most needs to see what went wrong.
-    button = "" if ok else '<button onclick="closeApp()">Yopish</button>'
-    auto_close = "setTimeout(closeApp, 1200);" if ok else ""
-    haptic = "'success'" if ok else "'error'"
 
+def _bot_deep_link() -> str | None:
+    username = settings.telegram_bot_username.strip().lstrip("@")
+    return f"https://t.me/{username}" if username else None
+
+
+def _html_page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
         f"""<!doctype html>
 <html lang="uz">
@@ -53,43 +66,72 @@ def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  body {{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         background:#0f172a; color:#e2e8f0; padding:24px; text-align:center; }}
-  .card {{ max-width:420px; }}
-  .icon {{ font-size:56px; line-height:1; }}
-  h1 {{ font-size:20px; margin:16px 0 8px; }}
-  p {{ font-size:15px; line-height:1.5; color:#94a3b8; margin:0; }}
-  button {{ margin-top:24px; padding:12px 28px; font-size:15px; border:0; border-radius:10px;
-            background:#334155; color:#e2e8f0; cursor:pointer; }}
-</style>
+<style>{_PAGE_CSS}</style>
 </head>
 <body>
-  <div class="card">
-    <div class="icon">{icon}</div>
-    <h1>{title}</h1>
-    <p>{message}</p>
-    {button}
-  </div>
-<script>
-  var tg = window.Telegram && window.Telegram.WebApp;
-  function closeApp() {{
-    if (tg) {{ tg.close(); }} else {{ window.close(); }}
-  }}
-  if (tg) {{
-    tg.ready();
-    tg.expand();
-    if (tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {{
-      tg.HapticFeedback.notificationOccurred({haptic});
-    }}
-  }}
-  {auto_close}
-</script>
+  <div class="card">{body}</div>
 </body>
 </html>""",
         status_code=200,
+    )
+
+
+def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
+    """Self-contained end-of-flow page.
+
+    Served by the backend rather than the SPA so the bot login never depends on the
+    frontend build, and so an error can never surface as a raw stack trace.
+    """
+    icon = "✅" if ok else "⚠️"
+    deep_link = _bot_deep_link()
+    back = (
+        f'<a class="btn" href="{deep_link}">Botga qaytish</a>'
+        if deep_link
+        else ""
+    )
+    return _html_page(
+        title,
+        f"""
+    <div class="icon">{icon}</div>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    {back}""",
+    )
+
+
+def _launch_page(*, state: str) -> HTMLResponse:
+    """The step between the bot button and HEMIS.
+
+    Worth the extra tap because of how HEMIS behaves: when the user is not already signed
+    in it sends them to One-ID, and on the way back it lands them on their HEMIS profile
+    instead of resuming ``/oauth/authorize``. The authorization then has to be started once
+    more — at which point HEMIS recognises the session and returns immediately. Without a
+    page saying so, that dead end reads as "the login is broken" and the user just repeats
+    the same failing steps. This page is a real history entry on our own domain, so the
+    browser's back button also leads here.
+    """
+    go_url = f"/oauth/login?flow={OAuthFlow.BOT.value}&s={quote(state)}&go=1"
+    deep_link = _bot_deep_link()
+    back = (
+        f'<div><a class="btn secondary" href="{deep_link}">Botga qaytish</a></div>'
+        if deep_link
+        else ""
+    )
+    return _html_page(
+        "HEMIS orqali kirish",
+        f"""
+    <div class="icon">🔐</div>
+    <h1>HEMIS orqali kirish</h1>
+    <p>Shaxsingizni tasdiqlash uchun HEMIS tizimiga o'tasiz.</p>
+    <a class="btn" href="{go_url}">HEMIS'ga o'tish</a>
+    <div class="hint">
+      <b>Diqqat.</b> Agar HEMIS sizni One-ID ga yo'naltirsa va tasdiqlashdan keyin
+      HEMIS profilingizda qolib ketsangiz — bu normal holat, kirish uzilmagan.
+      Shu sahifaga qayting (brauzerdagi «orqaga» tugmasi yoki botdagi tugmani qayta bosing)
+      va <b>«HEMIS'ga o'tish»</b> ni yana bir marta bosing. Bu safar HEMIS sizni
+      to'g'ridan-to'g'ri botga qaytaradi.
+    </div>
+    {back}""",
     )
 
 
@@ -141,9 +183,10 @@ def _user_type_token(userinfo: dict[str, Any]) -> str | None:
 async def oauth_login(
     flow: str = Query(default=OAuthFlow.WEB.value),
     s: str | None = Query(default=None, description="Pre-created state (bot flow)"),
+    go: int = Query(default=0, description="Bot flow: 1 skips the interstitial"),
     next: str | None = Query(default=None),
     session: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
+) -> Response:
     if s:
         # Bot flow: the bot already created the row, binding this login to a Telegram user.
         attempt = await session.get(OAuthLoginAttempt, s)
@@ -178,6 +221,10 @@ async def oauth_login(
             await session.flush()
 
         state = attempt.state
+        if not go:
+            # The state row (possibly a freshly minted one) is committed by ``get_db``
+            # when this response goes out, so the link on the page is live.
+            return _launch_page(state=state)
     else:
         state = secrets.token_urlsafe(32)
         session.add(

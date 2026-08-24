@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
+    BotCommand(command="start", description="Boshlash / qayta ishga tushirish"),
     BotCommand(command="menu", description="Asosiy menyu"),
     BotCommand(command="help", description="Yordam"),
     BotCommand(command="cancel", description="Amalni bekor qilish"),

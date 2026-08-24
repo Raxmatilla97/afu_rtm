@@ -39,11 +39,17 @@ async def cmd_start(
     await purge_transients(redis, arq_pool, message.chat.id)
 
     if auth_state is not AuthState.READY:
-        # force_new re-anchors at the bottom so the first screen is where the user is looking.
-        await show_auth_screen(chat_id=message.chat.id, data={
-            "bot": bot, "redis": redis, "arq_pool": arq_pool,
-            "session": session, "auth_state": auth_state, "employee": employee,
-        })
+        # force_new re-anchors at the bottom so the first screen is where the user is
+        # looking. Without it /start edited an anchor sitting far up the chat and the user
+        # saw nothing at all — their /start was swept away by autoclean and that was that.
+        await show_auth_screen(
+            chat_id=message.chat.id,
+            data={
+                "bot": bot, "redis": redis, "arq_pool": arq_pool,
+                "session": session, "auth_state": auth_state, "employee": employee,
+            },
+            force_new=True,
+        )
         return
 
     assert employee is not None

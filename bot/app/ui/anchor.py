@@ -35,9 +35,16 @@ async def render(
     """Show ``screen`` on the chat's anchor message, creating or replacing it as needed.
 
     ``force_new`` re-anchors at the bottom of the chat, which matters after a separate
-    message has been sent above it.
+    message has been sent above it. The previous anchor is deleted rather than left
+    behind: two live screens in one chat means the user can tap a button on the stale one
+    (an expired HEMIS login link, most painfully) and see nothing happen.
     """
-    stored = None if force_new else await redis.get(_key(chat_id))
+    stored = await redis.get(_key(chat_id))
+
+    if force_new and stored:
+        await _delete_quietly(bot, chat_id, int(stored))
+        await redis.delete(_key(chat_id))
+        stored = None
 
     if stored:
         try:
@@ -71,6 +78,14 @@ async def render(
 
     await redis.set(_key(chat_id), sent.message_id, ex=ANCHOR_TTL_SECONDS)
     return sent.message_id
+
+
+async def _delete_quietly(bot: Bot, chat_id: int, message_id: int) -> None:
+    """Best-effort delete. Already gone, older than 48h, or blocked — all fine to ignore."""
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except (TelegramBadRequest, TelegramForbiddenError):
+        logger.debug("Could not delete old anchor %s in chat %s", message_id, chat_id)
 
 
 async def forget_anchor(redis: Redis, chat_id: int) -> None:

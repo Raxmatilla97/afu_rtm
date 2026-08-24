@@ -100,9 +100,10 @@ bot login ham ishlamay qolgandi.)
 u o'z statik papkasini beradi va hech narsa ishlamaydi. 6-bo'limdagi tekshiruv shuni
 darrov ko'rsatadi.
 
-**CSP**: BunkerWeb standart holatda `frame-ancestors 'self'` qo'yadi. Telegram Web
-(`web.telegram.org`) WebApp'ni iframe ichida ochadi, shuning uchun bot login'i u yerda
-bloklanadi. Tuzatish:
+**CSP**: BunkerWeb standart holatda `frame-ancestors 'self'` qo'yadi. Bot login'i endi
+Mini App (webview) emas, oddiy brauzer havolasi orqali ochiladi, shuning uchun bu bot uchun
+majburiy emas. Lekin Telegram Web (`web.telegram.org`) saytni iframe ichida ochishi mumkin,
+shuning uchun quyidagi qiymat baribir tavsiya etiladi:
 
 ```
 rtm.afu.uz_CONTENT_SECURITY_POLICY=object-src 'none'; form-action 'self'; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;
@@ -215,9 +216,20 @@ Shu ma'lumot bilan xodimni topish qoidasini aniq sozlab, qayta deploy qilamiz.
 
 Botni oching → `/start` → "🔐 HEMIS orqali kirish" tugmasini bosing.
 
-Agar webview ochilmasa: @BotFather → Bot Settings → Domain → `rtm.afu.uz` qo'shib ko'ring.
-(Aslida `web_app` tugmalari uchun bu shart emas — bu Telegram Login Widget uchun — lekin
-muammo bo'lsa birinchi shuni tekshiring.)
+Havola **brauzerda** ochiladi (Mini App/webview emas — bu ataylab shunday, pastdagi
+"One-ID" izohiga qarang) → `rtm.afu.uz/oauth/login` oraliq sahifasi → "HEMIS'ga o'tish" →
+HEMIS → callback → "Botga qaytish".
+
+**One-ID haqida.** HEMIS'da sessiya bo'lmasa, u foydalanuvchini One-ID ga yuboradi va
+qaytishda `/oauth/authorize` ni davom ettirmasdan HEMIS profiliga tashlab qo'yadi — bu
+HEMIS tomonidagi xatti-harakat, biz tuzata olmaymiz. Yechim: o'sha oraliq sahifaga qaytib
+tugmani **ikkinchi marta** bosish; endi HEMIS sessiyani taniydi va to'g'ridan-to'g'ri
+callback'ga qaytaradi. Aynan shu sabab tugma Mini App emas: Mini App yopilganda cookie'lar
+o'chib ketadi, shuning uchun ikkinchi urinish ham noldan boshlanardi va foydalanuvchi
+cheksiz aylanib qolardi.
+
+Foydalanuvchi qaytib kelishi uchun `TELEGRAM_BOT_USERNAME` to'g'ri to'ldirilgan bo'lishi
+kerak — "Botga qaytish" tugmasi shundan `https://t.me/<username>` havolasini yasaydi.
 
 ---
 
@@ -267,7 +279,9 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 | "Serverga ulanib bo'lmadi (405)" | `POST /api/...` SPA nginx'ining statik `index.html`iga tushyapti — backend'ga proxy qilinmayapti. 6-bo'lim |
 | "HEMIS orqali kirish" bosilsa login sahifasida qolib ketadi | `/oauth/*` backend'ga proxy qilinmayapti (`index.html` qaytyapti) — 6-bo'lim |
 | Botda `/start` har safar qaytadan login so'raydi | Xuddi shu sabab: OAuth hech qachon yakunlanmagan, shuning uchun `employees` da telegram bog'lanish yo'q |
-| Telegram Web'da WebApp oq ekran | CSP `frame-ancestors` Telegram'ga ruxsat bermayapti — 4-bo'lim |
+| Telegram Web'da sayt oq ekran | CSP `frame-ancestors` Telegram'ga ruxsat bermayapti — 4-bo'lim |
+| One-ID dan keyin HEMIS profilida qolib ketadi | HEMIS `authorize` so'rovini davom ettirmaydi. Oraliq sahifaga qaytib tugmani qayta bosing — 9-bo'lim |
+| "Botga qaytish" tugmasi ko'rinmaydi | `.env` da `TELEGRAM_BOT_USERNAME` bo'sh |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |
 | Har bir login `unmatched` | HEMIS sync qilinmagan — 6-bosqichga qarang |
 | Frontend eski API manzilga uryapti | `VITE_API_BASE_URL` build vaqtida o'qiladi — `--build` bilan qayta yig'ing |

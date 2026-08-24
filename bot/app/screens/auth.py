@@ -18,7 +18,8 @@ WELCOME = (
     "👋 <b>RTM Murojaatlar tizimi</b>\n"
     "Alfraganus University — Raqamli texnologiyalar markazi\n\n"
     "Bu bot orqali RTM ga murojaat yuborasiz va uning holatini kuzatib borasiz.\n\n"
-    "Boshlash uchun HEMIS hisobingiz bilan kiring:"
+    "Boshlash uchun HEMIS hisobingiz bilan kiring. Havola brauzerda ochiladi — "
+    "kirish tugagach botga qaytasiz."
 )
 
 CONTACT_PROMPT = (
@@ -48,10 +49,17 @@ def build_ineligible_screen() -> Screen:
     return Screen(text=INELIGIBLE, keyboard=None)
 
 
-async def show_auth_screen(*, chat_id: int, data: dict[str, Any]) -> None:
+async def show_auth_screen(
+    *, chat_id: int, data: dict[str, Any], force_new: bool = False
+) -> None:
     """Render whichever onboarding step the user is actually on.
 
     Called from the auth guard, so it must handle every non-READY state.
+
+    ``force_new`` matters more here than anywhere else: onboarding is exactly when other
+    messages pile up below the anchor (the worker's post-OAuth greeting, the contact-share
+    prompt, the user's own typing). Editing the anchor in place then updates a screen that
+    has scrolled out of view, so the bot looks like it simply ignored the user.
     """
     bot: Bot = data["bot"]
     redis: Redis = data["redis"]
@@ -61,11 +69,11 @@ async def show_auth_screen(*, chat_id: int, data: dict[str, Any]) -> None:
     employee = data.get("employee")
 
     if auth_state is AuthState.INELIGIBLE:
-        await render(bot, redis, chat_id, build_ineligible_screen())
+        await render(bot, redis, chat_id, build_ineligible_screen(), force_new=force_new)
         return
 
     if auth_state is AuthState.OAUTH_ONLY:
-        await render(bot, redis, chat_id, build_contact_screen())
+        await render(bot, redis, chat_id, build_contact_screen(), force_new=force_new)
         # The contact button lives on a reply keyboard, which cannot be attached to the
         # anchor — send it as a transient alongside.
         await send_transient(
@@ -80,7 +88,7 @@ async def show_auth_screen(*, chat_id: int, data: dict[str, Any]) -> None:
     if user_id is None:
         user_id = chat_id  # private chat: chat id equals the user id
     screen = await build_login_screen(session, telegram_user_id=user_id, chat_id=chat_id)
-    await render(bot, redis, chat_id, screen)
+    await render(bot, redis, chat_id, screen, force_new=force_new)
 
 
 def login_keyboard_for(url: str) -> InlineKeyboardMarkup:

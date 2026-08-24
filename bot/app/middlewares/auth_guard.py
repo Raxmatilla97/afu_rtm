@@ -15,7 +15,13 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from app.middlewares.identity import AuthState
 
 #: Commands that must work before the user is fully onboarded.
-_ALLOWED_COMMANDS = ("/start", "/help", "/menu", "/cancel")
+#:
+#: Deliberately just ``/start``. Every other handler below declares ``employee: Employee``
+#: as non-optional, so letting ``/menu`` or ``/help`` through for an unonboarded user meant
+#: the handler ran with ``employee=None`` and died on ``employee.full_name`` — from the
+#: chat that looked exactly like the bot ignoring the command. Anything not listed here
+#: falls through to the onboarding screen, which is the useful answer anyway.
+_ALLOWED_COMMANDS = ("/start",)
 
 
 class AuthGuardMiddleware(BaseMiddleware):
@@ -43,7 +49,12 @@ class AuthGuardMiddleware(BaseMiddleware):
             chat_id = event.chat.id if isinstance(event, Message) else None
 
         if chat_id is not None:
-            await show_auth_screen(chat_id=chat_id, data=data)
+            # A typed message lands below the anchor, so the screen has to move down to
+            # stay visible. A button press is already on the anchor itself — moving it
+            # there would just make the screen jump around under the user's finger.
+            await show_auth_screen(
+                chat_id=chat_id, data=data, force_new=isinstance(event, Message)
+            )
         return None
 
 
