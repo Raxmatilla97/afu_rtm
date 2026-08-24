@@ -11,30 +11,6 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # Internal router, published on a unique host port.
-  #
-  # Traffic chain: aaPanel -> BunkerWeb (TLS + WAF) -> <host>:CADDY_HTTP_PORT -> caddy
-  # -> backend/frontend. TLS is terminated upstream by BunkerWeb, so Caddy speaks plain
-  # HTTP and must not attempt ACME (see deploy/Caddyfile).
-  #
-  # Port 80 is already taken on this host, hence the non-standard default. Set CADDY_BIND
-  # to 127.0.0.1 when BunkerWeb runs on the same machine, so the port is not reachable
-  # from outside at all; leave it 0.0.0.0 when BunkerWeb connects over an internal network.
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    logging: *default-logging
-    ports:
-      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-18080}:80"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_config:/config
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_started
-
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -75,8 +51,11 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - afu_uploads:/app/storage
-    expose:
-      - "8000"
+    ports:
+      # BunkerWeb routes /api/*, /oauth/*, /media/* and /health here.
+      # Restrict this port to the BunkerWeb host in the firewall — anything that can reach
+      # it directly bypasses the WAF and TLS entirely.
+      - "${BIND_ADDRESS:-0.0.0.0}:${BACKEND_HTTP_PORT:-18081}:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 10s
@@ -136,11 +115,11 @@ services:
         VITE_API_BASE_URL: ""
     restart: unless-stopped
     logging: *default-logging
-    expose:
-      - "80"
+    ports:
+      # BunkerWeb routes everything else here (the SPA). Same firewall caveat as backend.
+      - "${BIND_ADDRESS:-0.0.0.0}:${FRONTEND_HTTP_PORT:-18080}:80"
 
 volumes:
   afu_postgres_data:
   afu_redis_data:
   afu_uploads:
-  caddy_config:
