@@ -20,8 +20,31 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
 
-    backend_cors_origins: str = "http://localhost:5173"
+    backend_cors_origins: str = "https://rtm.afu.uz"
     storage_root: str = "/app/storage"
+
+    # --- HEMIS OAuth2 (per-user employee login) ---
+    # Field names intentionally mirror the EMPLOYEE_* env var names supplied by HEMIS,
+    # so the credentials block can be pasted into .env verbatim.
+    # NOTE: model_config uses extra="ignore" — an env var with no field here is silently dropped.
+    employee_client_id: str = ""
+    employee_client_secret: str = ""
+    employee_redirect_uri: str = "https://rtm.afu.uz/oauth/callback"
+    employee_url_authorize: str = "https://hemis.alfraganusuniversity.uz/oauth/authorize"
+    employee_url_access_token: str = "https://hemis.alfraganusuniversity.uz/oauth/access-token"
+    employee_url_resource_owner_details: str = (
+        "https://hemis.alfraganusuniversity.uz/oauth/api/user"
+        "?fields=id,uuid,type,name,login,picture,email,university_id,phone,specialty"
+    )
+    # Empty means the scope param is omitted entirely — Yii2 providers often reject unknown scopes.
+    employee_oauth_scope: str = ""
+    oauth_state_ttl_seconds: int = 600
+    oauth_debug_log_userinfo: bool = True
+    oauth_allowed_user_types: str = "employee"
+
+    # --- deployment ---
+    public_base_url: str = "https://rtm.afu.uz"
+    cookie_secure: bool = True
 
 
 settings = Settings()

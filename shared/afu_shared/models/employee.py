@@ -33,8 +33,23 @@ class Employee(TimestampMixin, Base):
 
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_username: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Telegram-verified phone (from the contact share). Distinct from hemis_phone, which HEMIS reports
+    # and which may be stale.
     phone_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set once the contact share completes — the "fully onboarded" flag.
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- HEMIS OAuth2 identity (populated on login; the bulk sync must not overwrite these) ---
+    # Stringified userinfo["id"] — the stable key that lets later logins skip the matching cascade.
+    hemis_oauth_subject: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+    hemis_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    hemis_login: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    hemis_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hemis_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    hemis_university_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    oauth_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

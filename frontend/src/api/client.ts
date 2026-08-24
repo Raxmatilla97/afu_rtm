@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// `??` not `||`: behind Caddy the app is served from the same origin as the API, so the
+// intended value is the empty string (relative /api/... calls). `||` would discard it.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
   status: number;

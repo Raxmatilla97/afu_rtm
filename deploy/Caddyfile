@@ -1,0 +1,42 @@
+# Caddy obtains and renews the Let's Encrypt certificate automatically.
+# Replace the email below with a real address — ACME uses it for expiry warnings.
+{
+	email admin@rtm.afu.uz
+}
+
+rtm.afu.uz {
+	encode zstd gzip
+
+	# Backend-owned paths. `handle` blocks are mutually exclusive and matched
+	# most-specific-first, so /oauth/callback reaches the backend even though the
+	# SPA owns "/". The HEMIS redirect URI is registered as https://rtm.afu.uz/oauth/callback,
+	# a ROOT path — this routing is what makes that work.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /oauth/* {
+		reverse_proxy backend:8000
+	}
+	handle /media/* {
+		reverse_proxy backend:8000
+	}
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else: the built SPA. Its own nginx does the history-API fallback.
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000;"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output stdout
+	}
+}
