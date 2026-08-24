@@ -1,39 +1,26 @@
+"""Reply keyboards and the shared inline building blocks.
+
+Navigation lives on inline keyboards attached to the anchor message (see ``app/ui/anchor.py``);
+the only reply keyboard left is the contact request, because ``request_contact`` has no
+inline equivalent.
+"""
+
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
+    WebAppInfo,
 )
 
-BTN_NEW_REQUEST = "🆕 Yangi murojaat"
-BTN_MY_REQUESTS = "📋 Mening murojaatlarim"
-BTN_STATS = "📊 Statistika"
-BTN_MY_ASSIGNMENTS = "🛠 Mening topshiriqlarim"
-
-
-def main_menu_keyboard(*, is_rtm_staff: bool) -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(text=BTN_NEW_REQUEST)], [KeyboardButton(text=BTN_MY_REQUESTS)]]
-    if is_rtm_staff:
-        rows.append([KeyboardButton(text=BTN_MY_ASSIGNMENTS)])
-    rows.append([KeyboardButton(text=BTN_STATS)])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
-
-
-def identity_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Ha, bu men", callback_data="identity_confirm_yes"),
-                InlineKeyboardButton(text="❌ Yo'q", callback_data="identity_confirm_no"),
-            ]
-        ]
-    )
+from afu_shared.labels import BTN_SHARE_CONTACT
+from app.callbacks import Nav
 
 
 def contact_request_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Telefon raqamni ulashish", request_contact=True)]],
+        keyboard=[[KeyboardButton(text=BTN_SHARE_CONTACT, request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
@@ -41,3 +28,27 @@ def contact_request_keyboard() -> ReplyKeyboardMarkup:
 
 def remove_keyboard() -> ReplyKeyboardRemove:
     return ReplyKeyboardRemove()
+
+
+def hemis_login_keyboard(login_url: str) -> InlineKeyboardMarkup:
+    """The HEMIS login button.
+
+    ``web_app`` opens the flow inside Telegram's webview and requires an HTTPS URL, which
+    the production domain provides. If a client ever refuses to open it, swapping
+    ``web_app=WebAppInfo(url=...)`` for ``url=...`` falls back to the system browser.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔐 HEMIS orqali kirish", web_app=WebAppInfo(url=login_url))]
+        ]
+    )
+
+
+def back_button(to: str, page: int = 1, text: str = "⬅️ Orqaga") -> InlineKeyboardButton:
+    """Back navigation names its parent explicitly — there is no history stack, so a button
+    tapped long after it was rendered still leads somewhere sensible."""
+    return InlineKeyboardButton(text=text, callback_data=Nav(to=to, page=page).pack())
+
+
+def menu_button(text: str = "🏠 Bosh menyu") -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=Nav(to="menu").pack())

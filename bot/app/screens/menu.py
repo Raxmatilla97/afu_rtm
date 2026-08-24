@@ -1,0 +1,57 @@
+"""Main menu and help."""
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from afu_shared.models import Employee
+from app.callbacks import Nav
+from app.keyboards.common import menu_button
+from app.ui.anchor import Screen
+
+
+def build_menu(employee: Employee) -> Screen:
+    text = (
+        f"👤 <b>{employee.full_name}</b>\n"
+        f"{employee.department.name if employee.department else 'Bo‘lim ko‘rsatilmagan'}\n\n"
+        "Nima qilmoqchisiz?"
+    )
+
+    rows = [
+        [InlineKeyboardButton(text="🆕 Yangi murojaat", callback_data=Nav(to="newreq").pack())],
+        [InlineKeyboardButton(text="📋 Mening murojaatlarim", callback_data=Nav(to="myreq").pack())],
+    ]
+    if employee.is_rtm_staff:
+        rows.append(
+            [InlineKeyboardButton(text="🛠 Mening topshiriqlarim", callback_data=Nav(to="assign").pack())]
+        )
+    rows.append([InlineKeyboardButton(text="📊 Statistika", callback_data=Nav(to="stats").pack())])
+    rows.append([InlineKeyboardButton(text="❓ Yordam", callback_data=Nav(to="help").pack())])
+
+    return Screen(text=text, keyboard=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+def build_help(employee: Employee) -> Screen:
+    lines = [
+        "❓ <b>Yordam</b>\n",
+        "<b>Murojaat yuborish</b>",
+        "«🆕 Yangi murojaat» → kategoriyani tanlang → muammoni yozing → xohlasangiz rasm biriktiring.\n",
+        "<b>Kuzatib borish</b>",
+        "«📋 Mening murojaatlarim» dan murojaatni ochib, holatini ko'rasiz va "
+        "RTM xodimi bilan yozishasiz. Bajarilgach, xizmatni baholay olasiz.\n",
+    ]
+    if employee.is_rtm_staff:
+        lines += [
+            "<b>RTM xodimi uchun</b>",
+            "«🛠 Mening topshiriqlarim» — sizga tayinlangan murojaatlar. "
+            "Ishni boshlash, murojaatchiga yozish, ichki izoh qoldirish va yakunlash mumkin.\n",
+        ]
+    lines += [
+        "<b>Buyruqlar</b>",
+        "/menu — asosiy menyu",
+        "/help — shu sahifa",
+        "/cancel — joriy amalni bekor qilish",
+    ]
+
+    return Screen(
+        text="\n".join(lines),
+        keyboard=InlineKeyboardMarkup(inline_keyboard=[[menu_button()]]),
+    )

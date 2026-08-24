@@ -1,93 +1,98 @@
-from aiogram import F, Router
-from aiogram.exceptions import TelegramForbiddenError
+"""Staff-authored messages: to the requester, and internal RTM notes."""
+
+from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
-from sqlalchemy import select
+from arq import ArqRedis
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import MessageVisibility
 from afu_shared.models import Employee, Request, RequestMessage
+from app.screens import assignments as screens
 from app.states.staff_actions import StaffActionStates
+from app.ui.anchor import render
+from app.utils.transient import send_transient
 
 router = Router(name="messaging")
 
 
-@router.message(StaffActionStates.awaiting_message_to_requester, F.text)
-async def send_message_to_requester(
-    message: Message, state: FSMContext, session: AsyncSession, employee: Employee
-) -> None:
+async def _store(
+    session: AsyncSession,
+    state: FSMContext,
+    employee: Employee,
+    body: str,
+    visibility: MessageVisibility,
+) -> tuple[Request, int] | None:
     data = await state.get_data()
-    request_id = data["request_id"]
-    request = await session.get(Request, request_id)
-    await state.clear()
+    rid, page = data["rid"], data.get("page", 1)
 
-    if not request or request.assigned_to_employee_id != employee.id:
-        await message.answer("Topilmadi.")
-        return
+    request = await session.get(Request, rid)
+    if request is None or request.assigned_to_employee_id != employee.id:
+        return None
 
-    body = message.text.strip()
     session.add(
         RequestMessage(
-            request_id=request.id,
+            request_id=rid,
             author_employee_id=employee.id,
-            visibility=MessageVisibility.TO_REQUESTER.value,
+            visibility=visibility.value,
             body=body,
         )
     )
     await session.flush()
+    return request, page
 
-    requester = await session.get(Employee, request.requester_employee_id)
-    if requester and requester.telegram_user_id:
-        try:
-            await message.bot.send_message(
-                requester.telegram_user_id,
-                f"💬 {request.display_number} bo'yicha RTM xabari:\n\n{body}",
-            )
-        except TelegramForbiddenError:
-            pass
 
-    await message.answer("Xabar yuborildi.")
+@router.message(StaffActionStates.awaiting_message_to_requester, F.text)
+async def message_to_requester(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+    arq_pool: ArqRedis,
+) -> None:
+    result = await _store(
+        session, state, employee, (message.text or "").strip(), MessageVisibility.TO_REQUESTER
+    )
+    await state.clear()
+    if result is None:
+        return
+    request, page = result
+
+    # Delivery goes through the worker so both directions share one notification path.
+    await arq_pool.enqueue_job("notify_request_message", request.id, employee.id)
+
+    screen = await screens.build_detail(session, employee, request.id, page)
+    if screen:
+        await render(bot, redis, message.chat.id, screen)
+    await send_transient(bot, redis, arq_pool, message.chat.id, "✅ Xabar yuborildi.")
 
 
 @router.message(StaffActionStates.awaiting_internal_message, F.text)
-async def send_internal_message(
-    message: Message, state: FSMContext, session: AsyncSession, employee: Employee
+async def internal_note(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    employee: Employee,
+    bot: Bot,
+    redis: Redis,
+    arq_pool: ArqRedis,
 ) -> None:
-    data = await state.get_data()
-    request_id = data["request_id"]
-    request = await session.get(Request, request_id)
-    await state.clear()
-
-    if not request:
-        await message.answer("Topilmadi.")
-        return
-
-    body = message.text.strip()
-    session.add(
-        RequestMessage(
-            request_id=request.id,
-            author_employee_id=employee.id,
-            visibility=MessageVisibility.INTERNAL.value,
-            body=body,
-        )
+    result = await _store(
+        session, state, employee, (message.text or "").strip(), MessageVisibility.INTERNAL
     )
-    await session.flush()
+    await state.clear()
+    if result is None:
+        return
+    request, page = result
 
-    other_staff = (
-        await session.execute(
-            select(Employee).where(
-                Employee.is_rtm_staff.is_(True),
-                Employee.telegram_user_id.is_not(None),
-                Employee.id != employee.id,
-            )
-        )
-    ).scalars()
+    await arq_pool.enqueue_job("notify_request_message", request.id, employee.id)
 
-    text = f"🗂 [Ichki] {request.display_number} — {employee.full_name}:\n\n{body}"
-    for staff in other_staff:
-        try:
-            await message.bot.send_message(staff.telegram_user_id, text)
-        except TelegramForbiddenError:
-            continue
-
-    await message.answer("Ichki izoh saqlandi va boshqa RTM xodimlariga yuborildi.")
+    screen = await screens.build_detail(session, employee, request.id, page)
+    if screen:
+        await render(bot, redis, message.chat.id, screen)
+    await send_transient(
+        bot, redis, arq_pool, message.chat.id, "🗂 Ichki izoh saqlandi."
+    )

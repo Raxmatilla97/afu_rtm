@@ -1,7 +1,7 @@
 from aiogram.fsm.state import State, StatesGroup
 
 
-class VerificationStates(StatesGroup):
-    awaiting_employee_id = State()
-    awaiting_identity_confirm = State()
+class AuthStates(StatesGroup):
+    """HEMIS OAuth resolves identity; only the contact share still needs a bot-side state."""
+
     awaiting_contact = State()

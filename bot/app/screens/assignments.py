@@ -1,0 +1,205 @@
+"""RTM-staff screens: assigned request list, detail and internal thread."""
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from afu_shared.enums import MessageVisibility, RequestStatus
+from afu_shared.labels import status_label
+from afu_shared.models import Employee, Request, RequestMessage
+from app.callbacks import AsgCB, Nav
+from app.keyboards.common import menu_button
+from app.ui.anchor import Screen
+from app.ui.paging import PAGE_SIZE, offset_for, paging_row, total_pages
+
+THREAD_PAGE_SIZE = 5
+
+OPEN_STATUSES = (RequestStatus.ASSIGNED.value, RequestStatus.IN_PROGRESS.value)
+
+
+def _fmt_dt(value) -> str:
+    return value.strftime("%d.%m.%Y %H:%M") if value else "—"
+
+
+async def build_list(session: AsyncSession, employee: Employee, page: int) -> Screen:
+    condition = (
+        Request.assigned_to_employee_id == employee.id,
+        Request.status.in_(OPEN_STATUSES),
+    )
+    total = (
+        await session.execute(select(func.count()).select_from(Request).where(*condition))
+    ).scalar_one()
+
+    if total == 0:
+        return Screen(
+            text="🛠 <b>Mening topshiriqlarim</b>\n\nHozircha ochiq topshiriq yo'q. 👍",
+            keyboard=InlineKeyboardMarkup(inline_keyboard=[[menu_button()]]),
+        )
+
+    pages = total_pages(total)
+    page = min(max(1, page), pages)
+    requests = list(
+        (
+            await session.execute(
+                select(Request)
+                .where(*condition)
+                # Soonest deadline first; undated work sinks to the bottom.
+                .order_by(Request.deadline_at.is_(None), Request.deadline_at)
+                .limit(PAGE_SIZE)
+                .offset(offset_for(page))
+            )
+        ).scalars()
+    )
+
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{r.display_number} · {_deadline_badge(r)} {status_label(r.status)}",
+                callback_data=AsgCB(act="open", rid=r.id, page=page).pack(),
+            )
+        ]
+        for r in requests
+    ]
+
+    nav = paging_row(page, pages, lambda p: Nav(to="assign", page=p).pack())
+    if nav:
+        rows.append(nav)
+    rows.append([menu_button()])
+
+    return Screen(
+        text=f"🛠 <b>Mening topshiriqlarim</b>\nOchiq: {total} ta",
+        keyboard=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+def _deadline_badge(request: Request) -> str:
+    return request.deadline_at.strftime("%d.%m") if request.deadline_at else "—"
+
+
+async def build_detail(
+    session: AsyncSession, employee: Employee, rid: int, page: int
+) -> Screen | None:
+    request = await session.get(Request, rid)
+    if request is None or request.assigned_to_employee_id != employee.id:
+        return None
+
+    requester = await session.get(Employee, request.requester_employee_id)
+
+    lines = [
+        f"<b>{request.display_number}</b> · {status_label(request.status)}",
+        f"Kategoriya: {request.category.label_uz}",
+        f"Murojaatchi: {requester.full_name if requester else '—'}",
+    ]
+    if requester and requester.department:
+        lines.append(f"Bo'lim: {requester.department.name}")
+    if requester and requester.phone_number:
+        lines.append(f"Telefon: {requester.phone_number}")
+    lines.append(f"Muddat: {_fmt_dt(request.deadline_at)}")
+    lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if request.status == RequestStatus.ASSIGNED.value:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="▶️ Ishni boshlash",
+                    callback_data=AsgCB(act="start", rid=rid, page=page).pack(),
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="💬 Murojaatchiga", callback_data=AsgCB(act="msg", rid=rid, page=page).pack()
+            ),
+            InlineKeyboardButton(
+                text="🗂 Ichki izoh", callback_data=AsgCB(act="internal", rid=rid, page=page).pack()
+            ),
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🧵 Yozishmalar", callback_data=AsgCB(act="thread", rid=rid, page=page).pack()
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ Bajarildi", callback_data=AsgCB(act="complete", rid=rid, page=page).pack()
+            )
+        ]
+    )
+    rows.append(
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=Nav(to="assign", page=page).pack())]
+    )
+
+    return Screen(text="\n".join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+async def build_thread(
+    session: AsyncSession, employee: Employee, rid: int, page: int, list_page: int
+) -> Screen | None:
+    request = await session.get(Request, rid)
+    if request is None or request.assigned_to_employee_id != employee.id:
+        return None
+
+    # Staff see both directions: their internal notes and the requester-facing exchange.
+    total = (
+        await session.execute(
+            select(func.count()).select_from(RequestMessage).where(RequestMessage.request_id == rid)
+        )
+    ).scalar_one()
+
+    if total == 0:
+        return Screen(
+            text=f"🧵 <b>{request.display_number}</b> — yozishmalar\n\nHali xabar yo'q.",
+            keyboard=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ Orqaga",
+                            callback_data=AsgCB(act="open", rid=rid, page=list_page).pack(),
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    pages = max(1, (total + THREAD_PAGE_SIZE - 1) // THREAD_PAGE_SIZE)
+    page = min(max(1, page), pages)
+
+    rows_data = list(
+        (
+            await session.execute(
+                select(RequestMessage, Employee)
+                .outerjoin(Employee, RequestMessage.author_employee_id == Employee.id)
+                .where(RequestMessage.request_id == rid)
+                .order_by(RequestMessage.created_at.desc())
+                .limit(THREAD_PAGE_SIZE)
+                .offset((page - 1) * THREAD_PAGE_SIZE)
+            )
+        ).all()
+    )
+
+    lines = [f"🧵 <b>{request.display_number}</b> — yozishmalar\n"]
+    for msg, author in reversed(rows_data):
+        internal = msg.visibility == MessageVisibility.INTERNAL.value
+        tag = "🗂 [ichki]" if internal else "💬"
+        who = "Siz" if author and author.id == employee.id else (author.full_name if author else "—")
+        lines.append(f"{tag} <b>{who}</b> · <i>{_fmt_dt(msg.created_at)}</i>\n{msg.body}\n")
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+    nav = paging_row(page, pages, lambda p: AsgCB(act="thread", rid=rid, page=p).pack())
+    if nav:
+        keyboard_rows.append(nav)
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Orqaga", callback_data=AsgCB(act="open", rid=rid, page=list_page).pack()
+            )
+        ]
+    )
+
+    return Screen(text="\n".join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=keyboard_rows))

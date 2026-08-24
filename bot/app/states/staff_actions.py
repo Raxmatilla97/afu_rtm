@@ -7,5 +7,7 @@ class StaffActionStates(StatesGroup):
     awaiting_internal_message = State()
 
 
-class RatingStates(StatesGroup):
-    awaiting_comment = State()
+class RequesterStates(StatesGroup):
+    """Requester replying inside their own request thread."""
+
+    awaiting_reply_body = State()
