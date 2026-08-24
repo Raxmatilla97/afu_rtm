@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 COPY shared /srv/shared
 COPY backend /srv/backend
 
-RUN pip install --no-cache-dir -e /srv/shared -e /srv/backend
+# --root-user-action=ignore: pip's root warning is meaningless inside a container,
+# and silencing it keeps real errors visible in deploy logs.
+RUN pip install --no-cache-dir --root-user-action=ignore -e /srv/shared -e /srv/backend
 
 WORKDIR /srv/backend
 
