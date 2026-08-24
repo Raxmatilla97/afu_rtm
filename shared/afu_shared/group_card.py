@@ -32,10 +32,31 @@ _HEADLINES = {
     RequestStatus.CANCELLED.value: "❌ <b>BEKOR QILINDI</b>",
 }
 
+#: Overrides the status headline once the deadline has passed. Telegram has no colours, so
+#: urgency has to be carried by the one visual channel a chat does have.
+OVERDUE_HEADLINE = "🔴🚨 <b>MUDDAT O'TDI</b>"
+
 _MEDALS = ("🥇", "🥈", "🥉")
 
 
-def _duration(start: datetime | None, end: datetime | None) -> str | None:
+def is_overdue(request: Request, *, now: datetime | None = None) -> bool:
+    """Past its deadline and still not finished.
+
+    A cancelled or completed request is never overdue, however long ago its deadline was —
+    it is simply done, and flagging it would be noise.
+    """
+    if request.deadline_at is None:
+        return False
+    if request.status not in (
+        RequestStatus.NEW.value,
+        RequestStatus.ASSIGNED.value,
+        RequestStatus.IN_PROGRESS.value,
+    ):
+        return False
+    return request.deadline_at < (now or datetime.now(timezone.utc))
+
+
+def format_duration(start: datetime | None, end: datetime | None) -> str | None:
     if not start or not end:
         return None
     minutes = int((end - start).total_seconds() // 60)
@@ -53,7 +74,7 @@ def _duration(start: datetime | None, end: datetime | None) -> str | None:
 def _age(created_at: datetime | None) -> str | None:
     if not created_at:
         return None
-    return _duration(created_at, datetime.now(timezone.utc))
+    return format_duration(created_at, datetime.now(timezone.utc))
 
 
 def _fmt_dt(value: datetime | None) -> str:
@@ -67,8 +88,9 @@ def build_card_text(
     attachments: list[RequestAttachment],
     ratings: list[Rating] | None = None,
 ) -> str:
+    overdue = is_overdue(request)
     lines = [
-        _HEADLINES.get(request.status, "📋 <b>MUROJAAT</b>"),
+        OVERDUE_HEADLINE if overdue else _HEADLINES.get(request.status, "📋 <b>MUROJAAT</b>"),
         RULE,
         f"🎫 <b>{request.display_number}</b> · "
         f"{request.category.label_uz if request.category else '—'}",
@@ -104,12 +126,17 @@ def build_card_text(
         if waiting:
             lines.append(f"<i>Kutmoqda: {waiting}</i>")
 
-    if request.deadline_at and request.status != RequestStatus.COMPLETED.value:
+    if overdue:
+        late = format_duration(request.deadline_at, datetime.now(timezone.utc))
+        lines.append(f"\n🔴 <b>Muddat: {_fmt_dt(request.deadline_at)}</b>")
+        if late:
+            lines.append(f"🚨 <b>{late} kechikdi!</b>")
+    elif request.deadline_at and request.status != RequestStatus.COMPLETED.value:
         lines.append(f"\n⏰ Muddat: {_fmt_dt(request.deadline_at)}")
 
     if request.status == RequestStatus.COMPLETED.value:
-        spent = _duration(request.assigned_at or request.created_at, request.completed_at)
-        lines.append(f"\n🏁 Yakunlandi: {_fmt_dt(request.completed_at)}")
+        spent = format_duration(request.assigned_at or request.created_at, request.completed_at)
+        lines.append(f"\n🟢 Yakunlandi: {_fmt_dt(request.completed_at)}")
         if spent:
             lines.append(f"⏱ Sarflangan vaqt: <b>{spent}</b>")
         if request.completion_note:

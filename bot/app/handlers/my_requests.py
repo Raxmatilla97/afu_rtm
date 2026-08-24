@@ -19,7 +19,7 @@ from app.services.attachments import attachments_for_request
 from app.services.thread import store_thread_message
 from app.states.staff_actions import RequesterStates
 from app.ui.anchor import render
-from app.utils.transient import send_transient
+from app.utils.transient import send_transient, track_media
 
 router = Router(name="my_requests")
 
@@ -168,13 +168,18 @@ async def resend_files(
         await callback.answer("Bu murojaatda fayl yo'q.", show_alert=True)
         return
 
-    await send_attachments(
+    sent = await send_attachments(
         bot, callback.message.chat.id, files,
         caption=f"📎 <b>{request.display_number}</b> — materiallar",
     )
+    # Tracked so the next screen change sweeps them away.
+    await track_media(redis, callback.message.chat.id, sent)
+
     screen = await screens.build_detail(session, employee, request.id, callback_data.page)
     if screen:
-        await render(bot, redis, callback.message.chat.id, screen, force_new=True)
+        await render(
+            bot, redis, callback.message.chat.id, screen, force_new=True, keep_media=True
+        )
 
 
 @router.callback_query(ReqCB.filter(F.act == "rate"))

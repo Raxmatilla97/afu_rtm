@@ -36,7 +36,9 @@ export function AttachmentView({ attachment }: { attachment: RequestAttachmentIt
           src={url}
           alt={original_filename || "Rasm"}
           loading="lazy"
-          className="max-h-72 w-auto rounded-lg border border-slate-200 object-cover"
+          // max-w-full matters inside a chat bubble: without it a wide photo pushes the
+          // bubble past the column and the whole thread scrolls sideways.
+          className="max-h-72 w-auto max-w-full rounded-lg border border-slate-200 object-cover"
         />
       </a>
     );

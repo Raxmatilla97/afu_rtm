@@ -67,6 +67,38 @@ talab qiladi va guruhga tegishli emas.
 
 Guruhni o'chirish: `/rtm_off`.
 
+### Yozishmalar
+
+Har bir bildirishnoma o'zi tegishli murojaatga bog'lab qo'yiladi. Shuning uchun botda
+xabarga oddiy **«reply»** qilib javob yozish yetarli — javob to'g'ri murojaat ipiga
+tushadi va ikkinchi tomonga boradi. Bu ikkala yo'nalishda ham ishlaydi: murojaatchi
+RTM xabariga javob bersa mas'ul xodimga, xodim javob bersa murojaatchiga.
+
+Vebda esa o'ng tomondagi chat har 5 soniyada o'zi yangilanadi, butun ekranga
+kengaytiriladi (yoki `Esc` bilan yopiladi) va Telegramdagidek ko'rinadi: **murojaatchi
+chapda, RTM o'ngda** — kim qarayotganidan qat'i nazar, ya'ni ikki kishi bir xil manzarani
+ko'radi. Ovozli xabar, video va rasm o'sha yerda ochiladi.
+
+### Muddat va kechikish
+
+Muddat qo'yilgan murojaat sahifasida katta **jonli sanoq** turadi: yashil → sutkadan kam
+qolganda sariq → muddat o'tsa qizil ogohlantirish.
+
+Har yarim soatda fon vazifasi kechikkanlarni tekshiradi va uch tomonga uch xil xabar
+yuboradi — har biriga bir marta:
+
+| Kimga | Nima |
+|---|---|
+| RTM guruhi | 🔴🚨 qizil signal, kartochka sarlavhasi ham qizilga o'zgaradi |
+| Bajaruvchi xodim | shaxsiy chatga eslatma + «Bajarish» va «Javob berish» tugmalari |
+| Murojaatchi | 🙏 uzr so'rash: ish unutilmagani va kim ustida ishlayotgani |
+
+RTM xodimining **bosh sahifasida** ham kechikkan va muddati yaqinlashgan topshiriqlar
+ro'yxati chiqadi. Muddat o'zgartirilsa, ogohlantirish qaytadan berilishi mumkin bo'ladi.
+
+Bajarilganda murojaatchiga 🎉🟢 yashil, tabriklovchi xabar boradi — sarflangan vaqt va
+baholash tugmalari bilan.
+
 ### Materiallar qanday saqlanadi
 
 Har bir fayl ikki xil saqlanadi: **diskda** (`STORAGE_ROOT` — veb-interfeys shu nusxani ko'rsatadi) va **Telegram `file_id`** sifatida. Botning har qanday qayta yuborishi `file_id` orqali ketadi — bu tezkor va fayl turi (ovozli xabar, aylana video) o'zgarmaydi. 20 MB dan katta fayllarni Bot API yuklab bera olmaydi: bunday fayl faqat Telegramda qoladi, veb-interfeysda esa "faqat Telegramda mavjud" deb ko'rsatiladi.

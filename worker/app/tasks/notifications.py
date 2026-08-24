@@ -17,8 +17,10 @@ from afu_shared.assignments import assignees_of
 from afu_shared.callbacks import AsgCB, ReqCB
 from afu_shared.db import session_scope
 from afu_shared.enums import MessageVisibility
+from afu_shared.group_card import format_duration
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments, send_attachments
+from afu_shared.message_links import remember_many
 from afu_shared.models import (
     Employee,
     Request,
@@ -26,6 +28,7 @@ from afu_shared.models import (
     RequestMessage,
 )
 from app.bot_client import get_bot
+from app.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -96,21 +99,32 @@ async def _request_attachments(
     return list((await session.execute(stmt)).scalars())
 
 
+#: Appended to anything a person can answer. Telegram's reply is what people reach for
+#: first, so the bot says out loud that it works.
+REPLY_HINT = "\n\n<i>💬 Javob berish uchun shu xabarga «reply» qiling yoki tugmani bosing.</i>"
+
+
 async def _deliver(
     chat_id: int,
     text: str,
     attachments: list[RequestAttachment],
     *,
+    request_id: int,
     reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
-    """Send the wording, then the files under it.
+    """Send the wording, then the files under it, and remember what they were about.
 
     Text first and files second, deliberately: the reader needs to know which request they
     are looking at before three photos and a voice note arrive.
+
+    Every message sent here is linked back to its request, so replying to any of them — the
+    text or one of the photos — reaches the right thread.
     """
     bot = get_bot()
     try:
-        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
+        sent = await bot.send_message(
+            chat_id, text, parse_mode="HTML", reply_markup=reply_markup
+        )
     except TelegramForbiddenError:
         logger.warning("Cannot deliver notification to %s: bot blocked", chat_id)
         return
@@ -120,8 +134,11 @@ async def _deliver(
         logger.warning("Flood limit delivering to %s (retry after %s)", chat_id, exc.retry_after)
         return
 
+    message_ids = [sent.message_id]
     if attachments:
-        await send_attachments(bot, chat_id, attachments)
+        message_ids += await send_attachments(bot, chat_id, attachments)
+
+    await remember_many(get_redis(), chat_id, message_ids, request_id)
 
 
 async def notify_request_assigned(
@@ -187,20 +204,26 @@ async def notify_request_assigned(
             lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(attachments)}")
             lines.append("<i>Fayllar shu xabardan keyin yuboriladi.</i>")
 
-        text = "\n".join(lines)
+        text = "\n".join(lines) + REPLY_HINT
         chat_id = assignee.telegram_user_id
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
+                        text="💬 Murojaatchiga yozish",
+                        callback_data=AsgCB(act="msg", rid=request_id).pack(),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
                         text="🛠 Topshiriqni ochish",
                         callback_data=AsgCB(act="open", rid=request_id).pack(),
                     )
-                ]
+                ],
             ]
         )
 
-    await _deliver(chat_id, text, attachments, reply_markup=keyboard)
+    await _deliver(chat_id, text, attachments, request_id=request_id, reply_markup=keyboard)
 
 
 async def send_completion_notification(
@@ -234,17 +257,33 @@ async def send_completion_notification(
             await _message_attachments(session, message_id) if message_id is not None else []
         )
 
+        team = [
+            row.employee.full_name
+            for row in await assignees_of(session, request_id)
+            if row.employee
+        ] or [staff.full_name if staff else "RTM xodimi"]
+
+        # Deliberately celebratory. This is the one message in the whole flow that tells
+        # somebody their problem is gone, and it should read like good news rather than
+        # like a status field changing value.
         text = (
-            f"✅ <b>Murojaatingiz bajarildi!</b>\n\n"
-            f"№ <b>{request.display_number}</b>\n"
-            f"Tavsif: {request.description}\n"
-            f"Bajardi: {staff.full_name if staff else 'RTM xodimi'}\n"
-            f"Izoh: {request.completion_note or '-'}\n\n"
-            f"Xizmat sifatini baholang:"
+            "🎉🟢 <b>BAJARILDI!</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            f"✅ <b>{request.display_number}</b> — murojaatingiz hal qilindi.\n\n"
+            f"📝 {request.description}\n\n"
+            f"🛠 <b>Bajardi:</b> {', '.join(team)}\n"
+            f"💬 <b>Izoh:</b> {request.completion_note or '—'}\n"
         )
+        if spent := format_duration(request.assigned_at or request.created_at, request.completed_at):
+            text += f"⏱ <b>Sarflangan vaqt:</b> {spent}\n"
+        text += "\n⭐ Xizmat sifatini baholang — bu bizga juda yordam beradi:"
         chat_id = requester.telegram_user_id
 
-    await _deliver(chat_id, text, attachments, reply_markup=_rating_keyboard(request_id))
+    await _deliver(
+        chat_id, text, attachments,
+        request_id=request_id,
+        reply_markup=_rating_keyboard(request_id),
+    )
 
 
 async def notify_request_message(
@@ -319,7 +358,8 @@ async def notify_request_message(
                 assignee = await session.get(Employee, request.assigned_to_employee_id)
                 recipients = [assignee] if assignee and assignee.telegram_user_id else []
                 keyboard = _keyboard_for(
-                    "🛠 Topshiriqni ochish", AsgCB(act="open", rid=request.id).pack()
+                    ("💬 Javob berish", AsgCB(act="msg", rid=request.id).pack()),
+                    ("🛠 Topshiriqni ochish", AsgCB(act="open", rid=request.id).pack()),
                 )
             else:
                 recipients = list(
@@ -338,16 +378,27 @@ async def notify_request_message(
             recipients = [requester] if requester and requester.telegram_user_id else []
             text = f"💬 <b>{display_number}</b> bo'yicha RTM xabari:\n\n{body}"
             keyboard = _keyboard_for(
-                "📋 Murojaatni ochish", ReqCB(act="open", rid=request.id).pack()
+                ("💬 Javob berish", ReqCB(act="reply", rid=request.id).pack()),
+                ("📋 Murojaatni ochish", ReqCB(act="open", rid=request.id).pack()),
             )
+
+        # The hint only goes where a reply would actually land somewhere. An internal note
+        # broadcast to every staffer has no single "other side" to answer.
+        if keyboard is not None:
+            text += REPLY_HINT
 
         targets = [r.telegram_user_id for r in recipients if r and r.telegram_user_id]
 
     for chat_id in targets:
-        await _deliver(chat_id, text, attachments, reply_markup=keyboard)
+        await _deliver(
+            chat_id, text, attachments, request_id=request_id, reply_markup=keyboard
+        )
 
 
-def _keyboard_for(label: str, callback_data: str) -> InlineKeyboardMarkup:
+def _keyboard_for(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
+    """One button per row: the captions are long enough that two abreast get truncated."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=label, callback_data=callback_data)]]
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=data)] for label, data in buttons
+        ]
     )

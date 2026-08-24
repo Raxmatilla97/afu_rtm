@@ -20,6 +20,7 @@ from app.handlers import (
     my_requests,
     new_request,
     rating,
+    replies,
 )
 from app.middlewares.auth_guard import AuthGuardMiddleware
 from app.middlewares.autoclean import AutoCleanMiddleware
@@ -88,6 +89,9 @@ async def main() -> None:
         assignments.router,
         messaging.router,
         rating.router,
+        # After the state-driven routers: someone halfway through a form who happens to
+        # reply to an old notification means the form step, not a new thread message.
+        replies.router,
         # Must stay last: it answers anything the routers above did not claim.
         fallback.router,
     )

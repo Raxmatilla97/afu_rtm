@@ -1,16 +1,32 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { statsApi } from "@/api/reference";
+import { requestsApi } from "@/api/requests";
+import { OverdueAlert } from "@/components/OverdueAlert";
 import { useAuth } from "@/context/AuthContext";
-import type { StatsSummary } from "@/types";
+import type { RequestItem, StatsSummary } from "@/types";
 
 export function DashboardPage() {
   const { session } = useAuth();
   const [summary, setSummary] = useState<StatsSummary | null>(null);
+  const [mine, setMine] = useState<RequestItem[]>([]);
+
+  const myEmployeeId = session.kind === "employee" ? session.employee.id : null;
 
   useEffect(() => {
     statsApi.summary().then(setSummary).catch(() => setSummary(null));
+    // The list endpoint already scopes to what the caller may see, so this is "my work"
+    // for a staff member and "my requests" for everyone else.
+    requestsApi.list().then(setMine).catch(() => setMine([]));
   }, []);
+
+  // Only jobs this person is actually on. A staff member's list also contains requests
+  // they reported themselves, and being warned about a deadline somebody else owns would
+  // train them to ignore the banner.
+  const myWork =
+    myEmployeeId === null
+      ? mine
+      : mine.filter((r) => r.assignees.some((a) => a.employee_id === myEmployeeId));
 
   const name = session.kind === "admin" ? session.admin.email : session.kind === "employee" ? session.employee.full_name : "";
 
@@ -29,6 +45,8 @@ export function DashboardPage() {
     <div>
       <h1 className="mb-1 text-2xl font-bold text-slate-900">Xush kelibsiz, {name}</h1>
       <p className="mb-6 text-sm text-slate-500">RTM murojaatlar tizimi bosh sahifasi</p>
+
+      <OverdueAlert requests={myWork} />
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         {cards.map((c) => (

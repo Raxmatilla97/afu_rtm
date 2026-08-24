@@ -271,12 +271,33 @@ docker compose -f docker-compose.prod.yml up -d --build
 BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
 Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
-biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`
-migratsiyasi kerak — tekshirish:
+biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`,
+kechikish ogohlantirishlari uchun `d81f4c60a7e3` migratsiyasi kerak — tekshirish:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend alembic current
 ```
+
+---
+
+## 9b. Kechikish ogohlantirishlari
+
+`worker` konteyneri ichida har yarim soatda (`:00` va `:30`) `check_overdue_requests`
+ishlaydi: muddati o'tgan va hali yopilmagan murojaatlarni topib, guruhga, bajaruvchiga va
+murojaatchiga xabar yuboradi. Har bir murojaat **bir marta** ogohlantiriladi —
+`requests.overdue_notified_at` shuni yozib qo'yadi; muddat o'zgartirilsa u tozalanadi.
+
+Bir o'tishda ko'pi bilan 40 ta murojaat qayta ishlanadi, orqada qolgani keyingi o'tishga
+o'tadi — bu Telegram flood limitiga urilib qolmaslik uchun.
+
+Ishlayotganini tekshirish:
+
+```bash
+docker compose -f docker-compose.prod.yml logs worker --tail 100 | grep -i overdue
+```
+
+Vaqt mintaqasi: konteyner UTC'da ishlaydi, muddatlar bazada `timestamptz` — solishtirish
+to'g'ri bo'ladi, alohida sozlash shart emas.
 
 ---
 
@@ -340,6 +361,8 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 | "Botga qaytish" / "Botda ochish" tugmasi ko'rinmaydi | `.env` da `TELEGRAM_BOT_USERNAME` bo'sh |
 | Guruhga murojaatlar tushmayapti | Guruh ulanmagan — RTM xodimi guruhda `/rtm_on` yozsin, 9a-bo'lim |
 | Guruhda "Men bajaraman" bosilsa "avval botga kiring" chiqadi | Bosgan odam botga shaxsan kirmagan yoki admin panelda RTM xodimi deb belgilanmagan |
+| Botda xabarga «reply» qilinsa javob bormaydi | Bog'lanish Redis'da 30 kun saqlanadi — eskirgan yoki Redis tozalangan. Tugmadan foydalaning |
+| Kechikish ogohlantirishi kelmayapti | `worker` ishlayaptimi va murojaatga muddat qo'yilganmi — 9b-bo'lim |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |
 | Har bir login `unmatched` | HEMIS sync qilinmagan — 6-bosqichga qarang |
 | Frontend eski API manzilga uryapti | `VITE_API_BASE_URL` build vaqtida o'qiladi — `--build` bilan qayta yig'ing |

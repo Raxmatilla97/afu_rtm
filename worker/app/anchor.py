@@ -13,9 +13,8 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from redis.asyncio import Redis
 
-from afu_shared.settings import settings
+from app.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -24,24 +23,18 @@ ANCHOR_KEY_TMPL = "bot:anchor:{chat_id}"
 ANCHOR_TTL_SECONDS = 30 * 24 * 3600
 
 
-def _redis() -> Redis:
-    return Redis.from_url(settings.redis_url, decode_responses=True)
-
-
 async def drop_anchor(bot: Bot, chat_id: int) -> None:
     """Delete the chat's current screen and forget it."""
-    redis = _redis()
+    redis = get_redis()
+    key = ANCHOR_KEY_TMPL.format(chat_id=chat_id)
+    stored = await redis.get(key)
+    if not stored:
+        return
     try:
-        key = ANCHOR_KEY_TMPL.format(chat_id=chat_id)
-        stored = await redis.get(key)
-        if stored:
-            try:
-                await bot.delete_message(chat_id, int(stored))
-            except (TelegramBadRequest, TelegramForbiddenError):
-                logger.debug("Anchor %s in chat %s already gone", stored, chat_id)
-            await redis.delete(key)
-    finally:
-        await redis.aclose()
+        await bot.delete_message(chat_id, int(stored))
+    except (TelegramBadRequest, TelegramForbiddenError):
+        logger.debug("Anchor %s in chat %s already gone", stored, chat_id)
+    await redis.delete(key)
 
 
 async def claim_anchor(chat_id: int, message_id: int) -> None:
@@ -52,10 +45,6 @@ async def claim_anchor(chat_id: int, message_id: int) -> None:
     post-OAuth "share your phone number" prompt is the motivating case: it is obsolete the
     moment the contact arrives, and without this it stayed in the chat forever.
     """
-    redis = _redis()
-    try:
-        await redis.set(
-            ANCHOR_KEY_TMPL.format(chat_id=chat_id), message_id, ex=ANCHOR_TTL_SECONDS
-        )
-    finally:
-        await redis.aclose()
+    await get_redis().set(
+        ANCHOR_KEY_TMPL.format(chat_id=chat_id), message_id, ex=ANCHOR_TTL_SECONDS
+    )

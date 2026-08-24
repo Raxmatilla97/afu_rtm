@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { requestsApi } from "@/api/requests";
 import { employeesApi } from "@/api/reference";
 import { AttachmentGrid } from "@/components/AttachmentView";
+import { DeadlineBanner } from "@/components/DeadlineBanner";
 import { RequestChat } from "@/components/RequestChat";
 import { RequesterCard } from "@/components/RequesterCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -24,7 +25,6 @@ export function RequestDetailPage() {
   const { session } = useAuth();
 
   const [request, setRequest] = useState<RequestItem | null>(null);
-  const [messages, setMessages] = useState<RequestMessageItem[]>([]);
   const [attachments, setAttachments] = useState<RequestAttachmentItem[]>([]);
   const [staffList, setStaffList] = useState<Employee[]>([]);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
@@ -43,13 +43,13 @@ export function RequestDetailPage() {
   const isRequester = myEmployeeId !== null && myEmployeeId === request?.requester_employee_id;
 
   async function load() {
-    const [r, m, a] = await Promise.all([
+    // Messages are not fetched here: RequestChat owns them and polls for itself, so a
+    // reload of the surrounding page never fights its own live updates.
+    const [r, a] = await Promise.all([
       requestsApi.get(requestId),
-      requestsApi.messages(requestId),
       requestsApi.attachments(requestId),
     ]);
     setRequest(r);
-    setMessages(m);
     setAttachments(a);
     // Seed the admin form with who is actually on it, so re-saving does not silently
     // clear the team.
@@ -142,6 +142,8 @@ export function RequestDetailPage() {
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
         <div className="space-y-6">
+          <DeadlineBanner deadlineAt={request.deadline_at} status={request.status} />
+
           {request.requester && <RequesterCard requester={request.requester} />}
 
           <div className="rounded-xl border border-slate-200 bg-white p-5">
@@ -299,7 +301,8 @@ export function RequestDetailPage() {
         <div className="h-[calc(100vh-10rem)] lg:sticky lg:top-8">
           <RequestChat
             requestId={requestId}
-            messages={messages}
+            requesterEmployeeId={request.requester_employee_id}
+            requesterName={request.requester_name || "Murojaatchi"}
             myEmployeeId={myEmployeeId}
             canWriteInternal={isAdmin || isStaff}
             canAttach={myEmployeeId !== null}

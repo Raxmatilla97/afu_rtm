@@ -302,11 +302,16 @@ async def send_attachment(
     *,
     caption: str | None = None,
     reply_markup: InlineKeyboardMarkup | None = None,
-) -> bool:
-    """Re-send one attachment as its original kind. Returns whether it went out."""
+) -> int | None:
+    """Re-send one attachment as its original kind.
+
+    Returns the id of the message it became, or None if it could not be sent. Callers keep
+    those ids so a chat can be tidied up afterwards — a set of replayed files is worth
+    seeing once, not worth leaving above every screen that follows.
+    """
     source = _source(attachment)
     if source is None:
-        return False
+        return None
 
     method = {
         AttachmentKind.PHOTO.value: bot.send_photo,
@@ -323,14 +328,14 @@ async def send_attachment(
         kwargs |= {"caption": caption, "parse_mode": "HTML"}
 
     try:
-        await _tolerating_flood(partial(method, chat_id, source, **kwargs))
+        sent = await _tolerating_flood(partial(method, chat_id, source, **kwargs))
     except TelegramForbiddenError:
         logger.info("Cannot send attachment %s to %s: bot blocked", attachment.id, chat_id)
-        return False
+        return None
     except (TelegramBadRequest, TelegramRetryAfter) as exc:
         logger.warning("Failed to send attachment %s to %s: %s", attachment.id, chat_id, exc)
-        return False
-    return True
+        return None
+    return sent.message_id
 
 
 def _input_media(attachment: RequestAttachment, caption: str | None):
@@ -352,20 +357,22 @@ async def send_attachments(
     attachments: list[RequestAttachment],
     *,
     caption: str | None = None,
-) -> int:
-    """Deliver a whole set of attachments in a readable order. Returns how many went out.
+) -> list[int]:
+    """Deliver a whole set of attachments in a readable order.
 
     Photos and videos travel as one album so the recipient sees them as a single block
     instead of a wall of separate messages; voice notes, round videos and files follow
     individually because Telegram will not group them. ``caption`` rides on the first item
     of the album, or on the first standalone file when there is no album.
+
+    Returns the ids of every message sent, so the caller can clear them away later.
     """
     if not attachments:
-        return 0
+        return []
 
     groupable = [a for a in attachments if a.kind in _GROUPABLE]
     singles = [a for a in attachments if a.kind not in _GROUPABLE]
-    sent = 0
+    sent: list[int] = []
     pending_caption = caption
 
     for start in range(0, len(groupable), MEDIA_GROUP_LIMIT):
@@ -382,33 +389,37 @@ async def send_attachments(
             continue
         if len(media) == 1:
             # A one-item album is rejected by Telegram; send it as a normal message.
-            if await send_attachment(bot, chat_id, chunk[0], caption=pending_caption):
-                sent += 1
+            single = await send_attachment(bot, chat_id, chunk[0], caption=pending_caption)
+            if single is not None:
+                sent.append(single)
         else:
             try:
-                await _tolerating_flood(
+                messages = await _tolerating_flood(
                     partial(bot.send_media_group, chat_id, media=media)
                 )
-                sent += len(media)
+                sent.extend(m.message_id for m in messages)
             except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter) as exc:
                 logger.warning("Media group to %s failed, falling back: %s", chat_id, exc)
                 for att in chunk:
-                    if await send_attachment(bot, chat_id, att):
-                        sent += 1
+                    one = await send_attachment(bot, chat_id, att)
+                    if one is not None:
+                        sent.append(one)
         pending_caption = None
 
     for att in singles:
         if att.kind == AttachmentKind.VIDEO_NOTE.value and pending_caption:
             # A round video carries no caption of its own.
             try:
-                await _tolerating_flood(
+                note = await _tolerating_flood(
                     partial(bot.send_message, chat_id, pending_caption, parse_mode="HTML")
                 )
+                sent.append(note.message_id)
             except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter):
                 pass
             pending_caption = None
-        if await send_attachment(bot, chat_id, att, caption=pending_caption):
-            sent += 1
+        one = await send_attachment(bot, chat_id, att, caption=pending_caption)
+        if one is not None:
+            sent.append(one)
             pending_caption = None
 
     return sent

@@ -59,6 +59,14 @@ class Request(TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completion_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    #: When the "this is late" warning went out. The overdue sweep runs on a schedule, so
+    #: without a record of having warned it would re-warn the same request every half hour
+    #: until somebody closed it — and a warning that repeats is one people learn to ignore.
+    #: Cleared whenever the deadline moves, which makes a new deadline warnable again.
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     def __repr__(self) -> str:
         return f"<Request id={self.id} status={self.status!r}>"
 

@@ -164,6 +164,10 @@ async def assign_request(
     previously = set(await assignee_ids(session, request.id))
 
     old_status = request.status
+    if request.deadline_at != payload.deadline_at:
+        # A new deadline is a new promise, so it becomes warnable again. Leaving the old
+        # mark in place would mean an extended deadline could never be missed a second time.
+        request.overdue_notified_at = None
     request.deadline_at = payload.deadline_at
     # set_assignees owns the assignee table, the primary column and the new/assigned
     # transition, so nothing here touches those directly.

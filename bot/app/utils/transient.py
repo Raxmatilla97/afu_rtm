@@ -7,6 +7,7 @@ from the other party must stay in the chat.
 from typing import Any
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import Message
 from arq import ArqRedis
 from redis.asyncio import Redis
@@ -16,9 +17,20 @@ TRANSIENT_DELETE_DEFER_SECONDS = 5
 #: Cap the tracked list; a runaway chat should not grow an unbounded Redis key.
 MAX_TRACKED = 10
 
+#: Replayed attachments. Tracked separately from transients because they must NOT expire on
+#: a timer — the user asked to see them and may be watching a two-minute video — but must
+#: not outlive the screen that produced them either. They are cleared the moment the user
+#: navigates anywhere else, which is what keeps the chat clean.
+MEDIA_KEY_TMPL = "bot:media:{chat_id}"
+MAX_TRACKED_MEDIA = 40
+
 
 def _key(chat_id: int) -> str:
     return TRANSIENTS_KEY_TMPL.format(chat_id=chat_id)
+
+
+def _media_key(chat_id: int) -> str:
+    return MEDIA_KEY_TMPL.format(chat_id=chat_id)
 
 
 async def schedule_delete(
@@ -67,3 +79,32 @@ async def purge_transients(redis: Redis, arq_pool: ArqRedis, chat_id: int) -> No
     for raw in ids:
         await schedule_delete(arq_pool, chat_id, int(raw), defer_seconds=0)
     await redis.delete(key)
+
+
+async def track_media(redis: Redis, chat_id: int, message_ids: list[int]) -> None:
+    """Remember replayed attachments so the next screen change can clear them."""
+    if not message_ids:
+        return
+    key = _media_key(chat_id)
+    await redis.lpush(key, *message_ids)
+    await redis.ltrim(key, 0, MAX_TRACKED_MEDIA - 1)
+    await redis.expire(key, 24 * 3600)
+
+
+async def purge_media(bot: Bot, redis: Redis, chat_id: int) -> None:
+    """Delete the replayed attachments now.
+
+    Immediate rather than queued: this runs as the user navigates, and the whole point is
+    that the files are gone by the time the new screen appears.
+    """
+    key = _media_key(chat_id)
+    ids = await redis.lrange(key, 0, -1)
+    if not ids:
+        return
+    await redis.delete(key)
+    for raw in ids:
+        try:
+            await bot.delete_message(chat_id, int(raw))
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter):
+            # Already gone, older than 48h, or blocked — none of it worth reporting.
+            pass

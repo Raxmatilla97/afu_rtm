@@ -13,6 +13,8 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import InlineKeyboardMarkup
 from redis.asyncio import Redis
 
+from app.utils.transient import purge_media
+
 logger = logging.getLogger(__name__)
 
 ANCHOR_KEY_TMPL = "bot:anchor:{chat_id}"
@@ -30,7 +32,13 @@ def _key(chat_id: int) -> str:
 
 
 async def render(
-    bot: Bot, redis: Redis, chat_id: int, screen: Screen, *, force_new: bool = False
+    bot: Bot,
+    redis: Redis,
+    chat_id: int,
+    screen: Screen,
+    *,
+    force_new: bool = False,
+    keep_media: bool = False,
 ) -> int | None:
     """Show ``screen`` on the chat's anchor message, creating or replacing it as needed.
 
@@ -38,7 +46,15 @@ async def render(
     message has been sent above it. The previous anchor is deleted rather than left
     behind: two live screens in one chat means the user can tap a button on the stale one
     (an expired HEMIS login link, most painfully) and see nothing happen.
+
+    ``keep_media`` spares the attachments a "📎 Materiallar" button just replayed. Every
+    other render clears them, which is how the chat stays clean: the files belong to the
+    screen that produced them, and the moment the user goes anywhere else they are clutter
+    sitting above everything that follows.
     """
+    if not keep_media:
+        await purge_media(bot, redis, chat_id)
+
     stored = await redis.get(_key(chat_id))
 
     if force_new and stored:
