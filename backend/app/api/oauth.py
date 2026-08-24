@@ -10,7 +10,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,13 +147,36 @@ async def oauth_login(
     if s:
         # Bot flow: the bot already created the row, binding this login to a Telegram user.
         attempt = await session.get(OAuthLoginAttempt, s)
-        if attempt is None or attempt.status != OAuthAttemptStatus.PENDING.value:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Havola yaroqsiz")
-        if attempt.expires_at < _now():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Havola muddati tugagan. Botda qaytadan urinib ko'ring.",
+        if (
+            attempt is None
+            or attempt.flow != OAuthFlow.BOT.value
+            or attempt.telegram_user_id is None
+        ):
+            logger.warning("Bot OAuth login with unusable state=%r", s)
+            return _terminal_page(
+                "Havola yaroqsiz",
+                "Botga qaytib /start ni bosing va qaytadan urinib ko'ring.",
+                ok=False,
             )
+
+        if attempt.status != OAuthAttemptStatus.PENDING.value or attempt.expires_at < _now():
+            # The button lives on the bot's anchor message, which sits in the chat for days,
+            # and its state is minted when that screen is RENDERED — not when the button is
+            # finally tapped. So a stale state here is the normal case, not an attack.
+            # What actually matters is the Telegram binding, so carry it into a fresh state
+            # instead of dead-ending the user. (Replay protection lives on the callback,
+            # which still refuses to redeem a non-pending state.)
+            attempt = OAuthLoginAttempt(
+                state=secrets.token_urlsafe(32),
+                flow=OAuthFlow.BOT.value,
+                telegram_user_id=attempt.telegram_user_id,
+                telegram_chat_id=attempt.telegram_chat_id,
+                status=OAuthAttemptStatus.PENDING.value,
+                expires_at=_now() + timedelta(seconds=settings.oauth_state_ttl_seconds),
+            )
+            session.add(attempt)
+            await session.flush()
+
         state = attempt.state
     else:
         state = secrets.token_urlsafe(32)

@@ -48,14 +48,17 @@ async def main() -> None:
 
     # Registered per-observer rather than on dp.update, because `event` must be a real
     # Message/CallbackQuery — the raw Update object has no `.from_user`.
-    # Order matters: a session must exist before identity is resolved, identity before the
-    # guard can judge it, and autoclean runs outermost so it still fires when the guard
-    # short-circuits the handler.
+    #
+    # Registration order IS nesting order: the first registered wraps all the rest.
+    # Autoclean therefore goes first — it must still delete the user's message when the
+    # auth guard short-circuits the handler, which is exactly when an unonboarded user is
+    # typing. Then a session must exist before identity is resolved, and identity before
+    # the guard can judge it.
+    dp.message.middleware(AutoCleanMiddleware())
     for observer in (dp.message, dp.callback_query):
         observer.middleware(DbSessionMiddleware())
         observer.middleware(IdentityMiddleware())
         observer.middleware(AuthGuardMiddleware())
-    dp.message.middleware(AutoCleanMiddleware())
 
     dp.include_router(commands.router)
     dp.include_router(contact.router)

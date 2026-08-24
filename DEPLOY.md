@@ -188,13 +188,23 @@ O'zingiz kirib ko'ring. Nima bo'lishidan qat'i nazar, natija bazaga yoziladi:
 docker compose -f docker-compose.prod.yml logs backend | grep -i oauth
 ```
 
-Agar xodim topilmasa, to'liq HEMIS javobi `oauth_login_attempts` jadvalida saqlanadi —
-admin panelidagi "OAuth urinishlari" sahifasidan yoki to'g'ridan-to'g'ri ko'rish mumkin:
+Har bir urinish — muvaffaqiyatli yoki yo'q — `oauth_login_attempts` jadvaliga to'liq
+HEMIS javobi bilan yoziladi. (Admin API'da `/api/oauth-attempts` bor, lekin unga mos
+sahifa hali frontend'da yo'q — hozircha to'g'ridan-to'g'ri bazadan o'qing.)
 
 ```bash
 docker compose -f docker-compose.prod.yml exec postgres \
   psql -U $POSTGRES_USER -d $POSTGRES_DB \
-  -c "SELECT state, status, match_strategy, userinfo_json FROM oauth_login_attempts ORDER BY created_at DESC LIMIT 5;"
+  -c "SELECT flow, status, match_strategy, matched_employee_id, error_detail, created_at FROM oauth_login_attempts ORDER BY created_at DESC LIMIT 10;"
+```
+
+`status` ustuni nima bo'lganini aytadi: `matched` (muvaffaqiyatli), `unmatched` (HEMIS
+tanidi, lekin xodim topilmadi — sync qilinmagan bo'lishi mumkin), `state_expired`,
+`token_error`, `userinfo_error`, `wrong_type`, `denied`, `pending` (HEMIS'ga borgan, lekin
+qaytmagan). `unmatched` bo'lsa to'liq javobni ko'ring:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres   psql -U $POSTGRES_USER -d $POSTGRES_DB   -c "SELECT userinfo_json FROM oauth_login_attempts WHERE status='unmatched' ORDER BY created_at DESC LIMIT 1;"
 ```
 
 Shu ma'lumot bilan xodimni topish qoidasini aniq sozlab, qayta deploy qilamiz.

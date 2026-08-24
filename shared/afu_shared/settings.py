@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     )
     # Empty means the scope param is omitted entirely — Yii2 providers often reject unknown scopes.
     employee_oauth_scope: str = ""
-    oauth_state_ttl_seconds: int = 600
+    #: How long a login state stays redeemable. Generous on purpose: the bot mints the
+    #: state when it renders its login screen, so the clock is already running before the
+    #: user taps the button and starts typing their HEMIS password.
+    oauth_state_ttl_seconds: int = 3600
     oauth_debug_log_userinfo: bool = True
     oauth_allowed_user_types: str = "employee"
 
