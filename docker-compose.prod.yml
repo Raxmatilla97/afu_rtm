@@ -1,14 +1,13 @@
 # Production stack for https://rtm.afu.uz
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# TLS and public traffic are handled by BunkerWeb, which lives outside this file. Only the
-# backend (18081) and frontend (18080) are published, and only for BunkerWeb to reach —
-# set BIND_ADDRESS=127.0.0.1 when BunkerWeb runs on the same host. Postgres and Redis are
-# reachable only on the internal compose network.
+# TLS and public traffic are handled by BunkerWeb, which lives outside this file.
 #
-# BunkerWeb must route /api/*, /oauth/*, /media/* and /health to the backend, and
-# everything else to the frontend — see DEPLOY.md §4. Without those rules every request
-# lands on the SPA and both web and bot login break.
+# Exactly ONE port is published: the frontend on 18080. That container is the site's entry
+# point — its nginx serves the SPA and proxies /api, /oauth, /media and /health to the
+# backend over the internal network (deploy/frontend-nginx.conf). So the outer proxy needs
+# a single upstream and no per-path rules. Set BIND_ADDRESS=127.0.0.1 when BunkerWeb runs
+# on the same host. Postgres, Redis, the backend and the worker stay internal.
 
 x-logging: &default-logging
   driver: json-file
@@ -57,11 +56,8 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - afu_uploads:/app/storage
-    ports:
-      # BunkerWeb routes /api/*, /oauth/*, /media/* and /health here.
-      # Restrict this port to the BunkerWeb host in the firewall — anything that can reach
-      # it directly bypasses the WAF and TLS entirely.
-      - "${BIND_ADDRESS:-0.0.0.0}:${BACKEND_HTTP_PORT:-18081}:8000"
+    # No published port: the frontend container reaches this over the compose network as
+    # http://backend:8000. Publishing it would only create a way to bypass the WAF and TLS.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 10s
@@ -122,7 +118,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      # BunkerWeb routes everything else here (the SPA). Same firewall caveat as backend.
+      # The only published port. Point BunkerWeb's rtm.afu.uz upstream at it and nothing
+      # else. Anything that can reach it directly bypasses the WAF and TLS, so keep it off
+      # the public interface in the firewall.
       - "${BIND_ADDRESS:-0.0.0.0}:${FRONTEND_HTTP_PORT:-18080}:80"
 
 volumes:

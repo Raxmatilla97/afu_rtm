@@ -3,13 +3,11 @@
 Butun stack Docker Compose orqali ishga tushadi. TLS'ni va tashqi trafikni **BunkerWeb**
 boshqaradi — u alohida turadi va bu compose faylga kirmaydi.
 
-Compose ikkita portni localhost'ga chiqaradi: backend `18081`, frontend `18080`.
-BunkerWeb shu ikkalasiga proxy qiladi. Postgres va Redis umuman tashqariga chiqmaydi.
-
-> ⚠️ **Eng muhim qadam — 4-bo'lim (BunkerWeb marshrutlari).** Agar `/api/*`, `/oauth/*`,
-> `/media/*` va `/health` backend'ga yo'naltirilmasa, hammasi frontend'ga tushadi va
-> tashqaridan bu shunday ko'rinadi: HEMIS tugmasi hech qayerga olib bormaydi, admin login
-> esa "Email yoki parol noto'g'ri" deydi (aslida nginx `POST` ga `405` qaytaradi).
+Compose **bitta** portni chiqaradi: frontend `18080`. Shu konteyner saytning yagona
+kirish nuqtasi — uning nginx'i SPA'ni beradi va `/api`, `/oauth`, `/media`, `/health` ni
+ichki tarmoq orqali backend'ga uzatadi ([`deploy/frontend-nginx.conf`](deploy/frontend-nginx.conf)).
+Shuning uchun BunkerWeb'ga faqat **bitta upstream** ko'rsatilsa yetarli — yo'llar bo'yicha
+qoida yozish shart emas. Backend, worker, Postgres va Redis tashqariga umuman chiqmaydi.
 
 ---
 
@@ -22,9 +20,15 @@ dig +short rtm.afu.uz
 ```
 
 **Firewall**: tashqariga faqat BunkerWeb'ning 80/443 portlari ochiq bo'lsin.
-`18080` va `18081` **internetdan yopiq** bo'lishi shart — ularga to'g'ridan-to'g'ri
-kirgan trafik WAF va TLS'ni chetlab o'tadi. `.env` da `BIND_ADDRESS=127.0.0.1` qo'ying
-(BunkerWeb ham shu serverda bo'lsa).
+`18080` **internetdan yopiq** bo'lishi shart — unga to'g'ridan-to'g'ri kirgan trafik WAF
+va TLS'ni chetlab o'tadi.
+
+`BIND_ADDRESS` ni qanday qo'yish kerak:
+- BunkerWeb to'g'ridan-to'g'ri serverda ishlasa → `127.0.0.1` (eng xavfsiz)
+- BunkerWeb o'z konteynerida ishlasa → `0.0.0.0`, va `18080` ni firewall'da tashqaridan
+  yoping. Konteyner host'ning `127.0.0.1` iga kira olmaydi, shuning uchun loopback'ga
+  bog'lash saytni ishlamay qo'yadi. Bu holda BunkerWeb upstream'i `127.0.0.1` emas,
+  host'ning docker bridge IP'si bo'ladi (odatda `172.17.0.1`).
 
 **Docker**: Docker Engine + Compose v2 o'rnatilgan bo'lsin.
 
@@ -68,37 +72,33 @@ Keyin `.env` ni tahrirlab quyidagilarni to'ldiring:
 | `COOKIE_SECURE` | `true` |
 | `BACKEND_CORS_ORIGINS` | `https://rtm.afu.uz` |
 | `VITE_API_BASE_URL` | **bo'sh qoldiring** |
-| `BIND_ADDRESS` | `127.0.0.1` (BunkerWeb shu serverda bo'lsa) |
+| `BIND_ADDRESS` | 1-bo'limga qarang (`127.0.0.1` yoki `0.0.0.0`) |
 
 `.env` allaqachon `.gitignore` da — hech qachon commit qilinmaydi.
 
 ---
 
-## 4. BunkerWeb marshrutlari (**majburiy**)
+## 4. BunkerWeb sozlamasi
 
-Bitta domen ikkita upstream'ga bo'linadi. BunkerWeb'ning `rtm.afu.uz` sayti uchun:
+`rtm.afu.uz` sayti uchun **bitta** upstream:
 
 ```
 rtm.afu.uz_USE_REVERSE_PROXY=yes
-
-rtm.afu.uz_REVERSE_PROXY_URL_1=/api/
-rtm.afu.uz_REVERSE_PROXY_HOST_1=http://127.0.0.1:18081/api/
-
-rtm.afu.uz_REVERSE_PROXY_URL_2=/oauth/
-rtm.afu.uz_REVERSE_PROXY_HOST_2=http://127.0.0.1:18081/oauth/
-
-rtm.afu.uz_REVERSE_PROXY_URL_3=/media/
-rtm.afu.uz_REVERSE_PROXY_HOST_3=http://127.0.0.1:18081/media/
-
-rtm.afu.uz_REVERSE_PROXY_URL_4=/health
-rtm.afu.uz_REVERSE_PROXY_HOST_4=http://127.0.0.1:18081/health
-
-rtm.afu.uz_REVERSE_PROXY_URL_5=/
-rtm.afu.uz_REVERSE_PROXY_HOST_5=http://127.0.0.1:18080/
+rtm.afu.uz_REVERSE_PROXY_URL_1=/
+rtm.afu.uz_REVERSE_PROXY_HOST_1=http://127.0.0.1:18080/
 ```
 
-`/` eng oxirida — u SPA uchun "qolgan hammasi" qoidasi. nginx eng uzun mos prefiksni
-tanlaydi, shuning uchun `/api/` `/` dan ustun turadi.
+BunkerWeb konteynerda bo'lsa `127.0.0.1` o'rniga host'ning bridge IP'sini yozing
+(`172.17.0.1` yoki `ip -4 addr show docker0` ko'rsatgan manzil).
+
+Yo'llar bo'yicha ajratishni frontend konteynerining o'zi qiladi, shuning uchun bu yerda
+`/api/`, `/oauth/` uchun alohida qoida **kerak emas**. (Ilgari bu ajratish faqat BunkerWeb
+tomonda edi — bitta qoida tushib qolgani uchun hamma so'rov SPA'ga tushib, web login ham,
+bot login ham ishlamay qolgandi.)
+
+**Muhim:** BunkerWeb'da `/` upstream'i yo'q bo'lsa yoki `USE_REVERSE_PROXY` o'chiq bo'lsa,
+u o'z statik papkasini beradi va hech narsa ishlamaydi. 6-bo'limdagi tekshiruv shuni
+darrov ko'rsatadi.
 
 **CSP**: BunkerWeb standart holatda `frame-ancestors 'self'` qo'yadi. Telegram Web
 (`web.telegram.org`) WebApp'ni iframe ichida ochadi, shuning uchun bot login'i u yerda
@@ -152,8 +152,21 @@ Kutilgan natija:
 | `/oauth/login?flow=web` | `302` (Location → `hemis.alfraganusuniversity.uz`) |
 | `/login` | `200` + `text/html` |
 
-Agar **to'rttasi ham** `200 text/html` qaytarsa — BunkerWeb hammasini frontend'ga
-uzatyapti, 4-bo'limga qayting. Bu holatda web login ham, bot login ham ishlamaydi.
+Agar **to'rttasi ham** `200 text/html` (bir xil o'lchamda) qaytarsa — so'rovlar
+backend'ga umuman yetib bormayapti. Ketma-ket tekshiring:
+
+```bash
+# 1) Frontend konteynerining o'zi to'g'ri javob beryaptimi? (BunkerWeb'ni chetlab o'tib)
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://127.0.0.1:18080/health
+```
+
+`200 application/json` bo'lsa — muammo BunkerWeb'da (4-bo'lim).
+`200 text/html` bo'lsa — frontend image eski, `--build` bilan qayta yig'ing:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build frontend
+docker compose -f docker-compose.prod.yml exec frontend nginx -t
+```
 
 ---
 
@@ -241,8 +254,8 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 
 | Belgi | Sabab |
 |---|---|
-| "Email yoki parol noto'g'ri", garchi parol to'g'ri bo'lsa | `/api/*` backend'ga yo'naltirilmagan — SPA nginx `POST` ga `405` qaytaryapti. 4-bo'lim |
-| "HEMIS orqali kirish" bosilsa login sahifasida qolib ketadi | `/oauth/*` backend'ga yo'naltirilmagan — 4-bo'lim |
+| "Serverga ulanib bo'lmadi (405)" | `POST /api/...` SPA nginx'ining statik `index.html`iga tushyapti — backend'ga proxy qilinmayapti. 6-bo'lim |
+| "HEMIS orqali kirish" bosilsa login sahifasida qolib ketadi | `/oauth/*` backend'ga proxy qilinmayapti (`index.html` qaytyapti) — 6-bo'lim |
 | Botda `/start` har safar qaytadan login so'raydi | Xuddi shu sabab: OAuth hech qachon yakunlanmagan, shuning uchun `employees` da telegram bog'lanish yo'q |
 | Telegram Web'da WebApp oq ekran | CSP `frame-ancestors` Telegram'ga ruxsat bermayapti — 4-bo'lim |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |

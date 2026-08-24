@@ -10,7 +10,8 @@ COPY frontend/ ./
 
 # Vite inlines import.meta.env.* at BUILD time, so this must arrive as a build arg —
 # setting it as a runtime environment variable has no effect on the built bundle.
-# Empty means same-origin relative API calls (/api/...), which is what we want behind Caddy.
+# Empty means same-origin relative API calls (/api/...) — this container proxies them
+# to the backend itself, see deploy/frontend-nginx.conf.
 ARG VITE_API_BASE_URL=""
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
