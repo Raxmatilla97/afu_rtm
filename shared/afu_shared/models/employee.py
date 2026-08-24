@@ -1,9 +1,13 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from afu_shared.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from afu_shared.models.department import Department
 
 
 class Employee(TimestampMixin, Base):

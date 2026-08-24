@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee
 from app.callbacks import Nav
-from app.keyboards.common import remove_keyboard
 from app.middlewares.identity import AuthState
 from app.screens import assignments, menu, my_requests, new_request, stats
 from app.screens.auth import show_auth_screen

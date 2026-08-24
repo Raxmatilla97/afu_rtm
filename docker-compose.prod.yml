@@ -11,18 +11,23 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  # Internal router, published on a unique host port.
+  #
+  # Traffic chain: aaPanel -> BunkerWeb (TLS + WAF) -> <host>:CADDY_HTTP_PORT -> caddy
+  # -> backend/frontend. TLS is terminated upstream by BunkerWeb, so Caddy speaks plain
+  # HTTP and must not attempt ACME (see deploy/Caddyfile).
+  #
+  # Port 80 is already taken on this host, hence the non-standard default. Set CADDY_BIND
+  # to 127.0.0.1 when BunkerWeb runs on the same machine, so the port is not reachable
+  # from outside at all; leave it 0.0.0.0 when BunkerWeb connects over an internal network.
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-18080}:80"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      # caddy_data holds the issued certificates. It MUST persist across redeploys,
-      # otherwise every `up --build` re-requests a cert and hits Let's Encrypt rate limits.
-      - caddy_data:/data
       - caddy_config:/config
     depends_on:
       backend:
@@ -138,5 +143,4 @@ volumes:
   afu_postgres_data:
   afu_redis_data:
   afu_uploads:
-  caddy_data:
   caddy_config:

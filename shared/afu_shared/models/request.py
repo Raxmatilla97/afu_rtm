@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from afu_shared.enums import RequestSource, RequestStatus
+from afu_shared.enums import RequestStatus
 from afu_shared.models.base import Base, TimestampMixin
 from afu_shared.models.category import Category
 from afu_shared.models.employee import Employee

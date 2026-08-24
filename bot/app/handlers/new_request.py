@@ -6,7 +6,6 @@ from pathlib import Path
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,10 +13,9 @@ from afu_shared.enums import RequestSource, RequestStatus
 from afu_shared.models import Category, Employee, Request, RequestAttachment, RequestStatusHistory
 from afu_shared.settings import settings
 from app.callbacks import CatCB, FlowCB
-from app.screens import menu, new_request as screens
+from app.screens import new_request as screens
 from app.states.new_request import NewRequestStates
 from app.ui.anchor import render
-from app.utils.transient import send_transient
 
 router = Router(name="new_request")
 

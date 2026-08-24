@@ -9,8 +9,8 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.enums import MessageVisibility, RequestStatus
-from afu_shared.models import Employee, Request, RequestMessage, RequestStatusHistory
+from afu_shared.enums import RequestStatus
+from afu_shared.models import Employee, Request, RequestStatusHistory
 from app.callbacks import AsgCB
 from app.screens import assignments as screens
 from app.states.staff_actions import StaffActionStates

@@ -1,16 +1,19 @@
-# Caddy obtains and renews the Let's Encrypt certificate automatically.
-# Replace the email below with a real address — ACME uses it for expiry warnings.
+# Internal router only — plain HTTP on :80, no TLS and no ACME.
+#
+# Dokploy's Traefik terminates HTTPS for rtm.afu.uz and forwards here, so Caddy must NOT
+# try to obtain its own certificate: two ACME clients racing for the same domain is how
+# you end up with neither getting one. Point the Dokploy domain at this service on port 80.
 {
-	email admin@rtm.afu.uz
+	auto_https off
+	admin off
 }
 
-rtm.afu.uz {
+:80 {
 	encode zstd gzip
 
 	# Backend-owned paths. `handle` blocks are mutually exclusive and matched
-	# most-specific-first, so /oauth/callback reaches the backend even though the
-	# SPA owns "/". The HEMIS redirect URI is registered as https://rtm.afu.uz/oauth/callback,
-	# a ROOT path — this routing is what makes that work.
+	# most-specific-first, so /oauth/callback reaches the backend even though the SPA
+	# owns "/". The HEMIS redirect URI is a ROOT path, which is what makes this necessary.
 	handle /api/* {
 		reverse_proxy backend:8000
 	}
@@ -30,9 +33,7 @@ rtm.afu.uz {
 	}
 
 	header {
-		Strict-Transport-Security "max-age=31536000;"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "strict-origin-when-cross-origin"
 	}
 

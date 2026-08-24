@@ -1,7 +1,5 @@
 """Requester-side handlers: open a request, read the thread, reply, rate."""
 
-from datetime import datetime, timezone
-
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
