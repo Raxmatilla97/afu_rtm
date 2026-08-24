@@ -41,7 +41,18 @@ export function LoginPage() {
       await refresh();
       navigate("/");
     } catch (e) {
-      setError(e instanceof ApiError ? "Email yoki parol noto'g'ri." : "Xatolik yuz berdi.");
+      // Only a 401 actually means bad credentials. Reporting every failure that way once
+      // hid a proxy misconfiguration: the SPA's nginx answered POST /api/... with 405 and
+      // the login page blamed the password for it.
+      if (e instanceof ApiError) {
+        setError(
+          e.status === 401
+            ? "Email yoki parol noto'g'ri."
+            : `Serverga ulanib bo'lmadi (${e.status}). Iltimos, RTM bilan bog'laning.`,
+        );
+      } else {
+        setError("Serverga ulanib bo'lmadi. Internet aloqasini tekshiring.");
+      }
     } finally {
       setLoading(false);
     }

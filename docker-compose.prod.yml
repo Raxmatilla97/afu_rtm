@@ -1,8 +1,14 @@
 # Production stack for https://rtm.afu.uz
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# Only Caddy publishes ports. Postgres, Redis, the backend and the frontend are reachable
-# only on the internal compose network — never expose them on a public host.
+# TLS and public traffic are handled by BunkerWeb, which lives outside this file. Only the
+# backend (18081) and frontend (18080) are published, and only for BunkerWeb to reach —
+# set BIND_ADDRESS=127.0.0.1 when BunkerWeb runs on the same host. Postgres and Redis are
+# reachable only on the internal compose network.
+#
+# BunkerWeb must route /api/*, /oauth/*, /media/* and /health to the backend, and
+# everything else to the frontend — see DEPLOY.md §4. Without those rules every request
+# lands on the SPA and both web and bot login break.
 
 x-logging: &default-logging
   driver: json-file
