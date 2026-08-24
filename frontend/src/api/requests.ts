@@ -9,12 +9,12 @@ export const requestsApi = {
     api.post<RequestItem>("/api/requests", { category_slug, description }),
   /** The first id becomes the primary assignee; the rest work alongside them. */
   assign: (id: number, assigned_to_employee_ids: number[], deadline_at: string | null) =>
-    api.patch<RequestItem>(`/api/requests/${id}/assign`, {
+    api.post<RequestItem>(`/api/requests/${id}/assign`, {
       assigned_to_employee_ids,
       deadline_at,
     }),
   updateStatus: (id: number, status: string, note?: string) =>
-    api.patch<RequestItem>(`/api/requests/${id}/status`, { status, note }),
+    api.post<RequestItem>(`/api/requests/${id}/status`, { status, note }),
   complete: (id: number, completion_note: string) =>
     api.post<RequestItem>(`/api/requests/${id}/complete`, { completion_note }),
   messages: (id: number) => api.get<RequestMessageItem[]>(`/api/requests/${id}/messages`),

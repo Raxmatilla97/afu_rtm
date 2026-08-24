@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { describeError } from "@/api/errors";
 import { employeesApi } from "@/api/reference";
 import type { Employee } from "@/types";
 
@@ -9,6 +10,7 @@ export function EmployeesPage() {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -37,11 +39,17 @@ export function EmployeesPage() {
     }
 
     setBusyId(employee.id);
+    setError(null);
     try {
       const updated = await employeesApi.setRoles(employee.id, {
         [key]: !employee[key],
       });
       setItems((prev) => prev.map((x) => (x.id === employee.id ? updated : x)));
+    } catch (e) {
+      // Never swallow this. A failed toggle used to do nothing at all — no change, no
+      // message — which is indistinguishable from a button that was never wired up, and
+      // sent us looking in the wrong place entirely.
+      setError(describeError(e));
     } finally {
       setBusyId(null);
     }
@@ -64,6 +72,12 @@ export function EmployeesPage() {
         guruhida murojaatni boshqa xodimga tayinlay oladi va veb-saytda bajaruvchini olib
         tashlay oladi. <b>Bloklangan</b> xodim tizimga umuman kira olmaydi.
       </p>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="text-slate-400">Yuklanmoqda...</div>

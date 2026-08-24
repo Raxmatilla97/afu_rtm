@@ -6,6 +6,7 @@ import type {
   HemisSyncRun,
   MonthlyCount,
   StaffRatingSummary,
+  StatsOverview,
   StatsSummary,
 } from "@/types";
 
@@ -33,7 +34,7 @@ export const employeesApi = {
       is_admin: boolean;
       is_blocked: boolean;
     }>,
-  ) => api.patch<Employee>(`/api/employees/${id}/roles`, roles),
+  ) => api.post<Employee>(`/api/employees/${id}/roles`, roles),
 };
 
 export const categoriesApi = {
@@ -53,4 +54,5 @@ export const ratingsApi = {
 export const statsApi = {
   summary: () => api.get<StatsSummary>("/api/stats/summary"),
   completedByMonth: () => api.get<MonthlyCount[]>("/api/stats/completed-by-month"),
+  overview: () => api.get<StatsOverview>("/api/stats/overview"),
 };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { requestsApi } from "@/api/requests";
+import { describeError } from "@/api/errors";
 import { employeesApi } from "@/api/reference";
 import { AttachmentGrid } from "@/components/AttachmentView";
 import { DeadlineBanner } from "@/components/DeadlineBanner";
@@ -31,6 +32,26 @@ export function RequestDetailPage() {
   const [completionNote, setCompletionNote] = useState("");
   const [ratingScore, setRatingScore] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Every mutating action goes through here.
+   *
+   * Each of these used to be a bare try/finally that reset `busy` and let the failure
+   * disappear. Pressing "Tayinlash" against a request the server refused therefore looked
+   * exactly like pressing a dead button — no change, no message, nothing to report.
+   */
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const isAdmin = session.kind === "admin";
   const myEmployeeId = session.kind === "employee" ? session.employee.id : null;
@@ -80,49 +101,39 @@ export function RequestDetailPage() {
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
     if (assigneeIds.length === 0) return;
-    setBusy(true);
-    try {
+    await run(async () => {
       await requestsApi.assign(
         requestId,
         assigneeIds,
+        // datetime-local has no timezone, so the browser reads it as local time — which
+        // is what the person typing it meant. toISOString converts to UTC for the server.
         deadline ? new Date(deadline).toISOString() : null,
       );
       await load();
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleStatus(status: string) {
-    setBusy(true);
-    try {
+    await run(async () => {
       await requestsApi.updateStatus(requestId, status);
       await load();
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleComplete(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    try {
+    await run(async () => {
       await requestsApi.complete(requestId, completionNote);
       setCompletionNote("");
       await load();
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function handleRate(score: number) {
-    setBusy(true);
-    try {
+    await run(async () => {
       await requestsApi.rate(requestId, score);
       setRatingScore(score);
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   if (!request) return <div className="text-slate-400">Yuklanmoqda...</div>;
@@ -142,6 +153,12 @@ export function RequestDetailPage() {
         </div>
         <StatusBadge status={request.status} />
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
         <div className="space-y-6">

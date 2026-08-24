@@ -164,3 +164,51 @@ export const STATUS_LABELS: Record<string, string> = {
   completed: "Bajarilgan",
   cancelled: "Bekor qilingan",
 };
+
+export interface MonthlyPoint {
+  month: string;
+  created: number;
+  completed: number;
+}
+
+export interface CategoryCount {
+  slug: string;
+  label: string;
+  total: number;
+  completed: number;
+}
+
+export interface RatingBucket {
+  score: number;
+  count: number;
+}
+
+export interface ResolutionStats {
+  average_hours: number | null;
+  median_hours: number | null;
+  fastest_hours: number | null;
+  slowest_hours: number | null;
+  on_time: number;
+  late: number;
+}
+
+export interface StaffLoad {
+  employee_id: number;
+  full_name: string;
+  open_count: number;
+  completed_count: number;
+  average_score: number | null;
+}
+
+export interface StatsOverview {
+  summary: StatsSummary;
+  monthly: MonthlyPoint[];
+  by_category: CategoryCount[];
+  ratings: RatingBucket[];
+  average_rating: number | null;
+  rating_count: number;
+  resolution: ResolutionStats;
+  staff_load: StaffLoad[];
+  open_overdue: number;
+  unassigned: number;
+}

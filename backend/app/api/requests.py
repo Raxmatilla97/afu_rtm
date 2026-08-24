@@ -135,7 +135,7 @@ async def get_request(
     return RequestResponse.from_request(request)
 
 
-@router.patch("/{request_id}/assign", response_model=RequestResponse)
+@router.post("/{request_id}/assign", response_model=RequestResponse)
 async def assign_request(
     request_id: int,
     payload: RequestAssign,
@@ -214,7 +214,7 @@ async def assign_request(
     return RequestResponse.from_request(request)
 
 
-@router.patch("/{request_id}/status", response_model=RequestResponse)
+@router.post("/{request_id}/status", response_model=RequestResponse)
 async def update_status(
     request_id: int,
     payload: RequestStatusUpdate,

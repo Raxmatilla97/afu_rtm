@@ -67,7 +67,7 @@ async def demote_from_staff(
     return EmployeeResponse.from_employee(employee)
 
 
-@router.patch("/{employee_id}/roles", response_model=EmployeeResponse)
+@router.post("/{employee_id}/roles", response_model=EmployeeResponse)
 async def update_roles(
     employee_id: int,
     payload: EmployeeRolesUpdate,
