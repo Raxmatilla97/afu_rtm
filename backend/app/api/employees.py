@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee, User
 from app.deps import get_current_admin, get_db
-from app.schemas.employee import EmployeeResponse
+from app.schemas.employee import EmployeeResponse, EmployeeRolesUpdate
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -63,6 +63,37 @@ async def demote_from_staff(
     if not employee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
     employee.is_rtm_staff = False
+    await session.flush()
+    return EmployeeResponse.from_employee(employee)
+
+
+@router.patch("/{employee_id}/roles", response_model=EmployeeResponse)
+async def update_roles(
+    employee_id: int,
+    payload: EmployeeRolesUpdate,
+    admin: User = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+) -> EmployeeResponse:
+    """Set any subset of an employee's flags.
+
+    One endpoint for all of them, taking only the fields that were sent, because the admin
+    table toggles them individually: a per-flag endpoint would be four near-identical
+    handlers, and a whole-object PUT would let one toggle silently reset the rest.
+    """
+    employee = await session.get(Employee, employee_id)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    if payload.is_rtm_staff is not None:
+        employee.is_rtm_staff = payload.is_rtm_staff
+    if payload.is_supervisor is not None:
+        employee.is_supervisor = payload.is_supervisor
+    if payload.is_admin is not None:
+        employee.is_admin = payload.is_admin
+    if payload.is_blocked is not None and payload.is_blocked != employee.is_blocked:
+        employee.is_blocked = payload.is_blocked
+        employee.blocked_at = datetime.now(timezone.utc) if payload.is_blocked else None
+
     await session.flush()
     return EmployeeResponse.from_employee(employee)
 

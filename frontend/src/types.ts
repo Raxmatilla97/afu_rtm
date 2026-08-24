@@ -10,6 +10,10 @@ export interface EmployeeMe {
   employee_id_number: string;
   department_name: string | null;
   is_rtm_staff: boolean;
+  is_supervisor: boolean;
+  is_admin: boolean;
+  /** Boshliq or Admin: may assign a request to somebody and take somebody off one. */
+  can_manage_assignments: boolean;
   phone_number: string | null;
   telegram_username: string | null;
 }
@@ -33,6 +37,10 @@ export interface Employee {
   is_active: boolean;
   year_of_enter: number | null;
   is_rtm_staff: boolean;
+  is_supervisor: boolean;
+  is_admin: boolean;
+  /** Set by hand in the admin panel. Separate from access_revoked, which HEMIS owns. */
+  is_blocked: boolean;
   access_revoked: boolean;
   telegram_user_id: number | null;
   telegram_username: string | null;

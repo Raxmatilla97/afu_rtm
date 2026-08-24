@@ -195,8 +195,19 @@ async def _reply_note(bot: Bot, post: RequestGroupPost, note: str) -> None:
         logger.warning("Could not post note to %s: %s", post.chat_id, exc)
 
 
+#: How long replayed files stay in a group before the bot clears them away.
+GROUP_MEDIA_TTL_SECONDS = 10 * 60
+
+
 async def send_request_files_to_chat(ctx: dict, request_id: int, chat_id: int) -> None:
-    """Replay a request's files into a group, on request from its card."""
+    """Replay a request's files into a group, on request from its card.
+
+    Group copies are temporary. A shared chat that keeps every photo anyone ever asked to
+    see becomes unusable within a week, and the files are never lost: the card's button
+    fetches them again, and the web interface keeps them permanently. The countdown is
+    written into the caption rather than posted as its own message, so the warning cannot
+    itself become the clutter it is there to prevent.
+    """
     async with session_scope() as session:
         request = await session.get(Request, request_id)
         if request is None:
@@ -212,8 +223,22 @@ async def send_request_files_to_chat(ctx: dict, request_id: int, chat_id: int) -
         )
         display_number = request.display_number
 
-    if attachments:
-        await send_attachments(
-            get_bot(), chat_id, attachments,
-            caption=f"📎 <b>{display_number}</b> — materiallar",
+    if not attachments:
+        return
+
+    minutes = GROUP_MEDIA_TTL_SECONDS // 60
+    sent = await send_attachments(
+        get_bot(), chat_id, attachments,
+        caption=(
+            f"📎 <b>{display_number}</b> — materiallar\n"
+            f"<i>🕙 {minutes} daqiqadan so'ng bu fayllar o'chiriladi. "
+            "Kerak bo'lsa kartochkadagi tugmani qayta bosing.</i>"
+        ),
+    )
+    for message_id in sent:
+        await ctx["redis"].enqueue_job(
+            "delete_telegram_message",
+            chat_id,
+            message_id,
+            _defer_by=GROUP_MEDIA_TTL_SECONDS,
         )

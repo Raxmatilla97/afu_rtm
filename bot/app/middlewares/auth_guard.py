@@ -22,6 +22,10 @@ GROUP_NOT_ONBOARDED = (
     "ro'yxatdan o'ting."
 )
 
+#: A blocked person is not missing a step, so telling them to go and register would send
+#: them round a loop that cannot end.
+GROUP_BLOCKED = "🚫 Siz botdan foydalana olmaysiz — hisobingiz bloklangan."
+
 #: Commands that must work before the user is fully onboarded.
 #:
 #: Deliberately just ``/start``. Every other handler below declares ``employee: Employee``
@@ -56,7 +60,11 @@ class AuthGuardMiddleware(BaseMiddleware):
             if isinstance(event, CallbackQuery):
                 # A pop-up only the presser sees, pointing at the one place this can be
                 # fixed. Nothing is posted into the shared chat.
-                await event.answer(GROUP_NOT_ONBOARDED, show_alert=True)
+                employee = data.get("employee")
+                blocked = employee is not None and employee.is_blocked
+                await event.answer(
+                    GROUP_BLOCKED if blocked else GROUP_NOT_ONBOARDED, show_alert=True
+                )
                 return None
             # Group messages run on: the only handlers that can see them belong to the
             # group router, every one of them checks RTM membership itself, and they all

@@ -34,6 +34,15 @@ INELIGIBLE = (
     "RTM bilan bog'laning."
 )
 
+#: Separate from INELIGIBLE on purpose. "Your account is not active" reads like a HEMIS
+#: problem the person could go and fix; a deliberate block is a decision somebody made, and
+#: saying so plainly is what sends them to the right place instead of to the HR office.
+BLOCKED = (
+    "🚫 <b>Siz botdan foydalana olmaysiz!</b>\n\n"
+    "Sizning hisobingiz administrator tomonidan bloklangan.\n\n"
+    "Savollaringiz bo'lsa, RTM ma'muriyatiga murojaat qiling."
+)
+
 
 async def build_login_screen(session: AsyncSession, *, telegram_user_id: int, chat_id: int) -> Screen:
     # A fresh state is minted per render, so the button is never stale for long.
@@ -45,8 +54,10 @@ def build_contact_screen() -> Screen:
     return Screen(text=CONTACT_PROMPT, keyboard=None)
 
 
-def build_ineligible_screen() -> Screen:
-    return Screen(text=INELIGIBLE, keyboard=None)
+def build_ineligible_screen(employee=None) -> Screen:
+    """Why this person cannot get in — the blocked wording when that is the actual reason."""
+    blocked = employee is not None and getattr(employee, "is_blocked", False)
+    return Screen(text=BLOCKED if blocked else INELIGIBLE, keyboard=None)
 
 
 async def show_auth_screen(
@@ -69,7 +80,9 @@ async def show_auth_screen(
     employee = data.get("employee")
 
     if auth_state is AuthState.INELIGIBLE:
-        await render(bot, redis, chat_id, build_ineligible_screen(), force_new=force_new)
+        await render(
+            bot, redis, chat_id, build_ineligible_screen(employee), force_new=force_new
+        )
         return
 
     if auth_state is AuthState.OAUTH_ONLY:

@@ -48,6 +48,24 @@ Alfraganus University Raqamliy texnologiyalar markazi (RTM) uchun ichki murojaat
 8. Murojaatchiga bildirishnoma va hisobot materiallari boradi, u 1–5 baho qo'yadi.
 9. **Top xodimlar** va **Statistika** sahifalarida natijalar ko'rinadi. Botdagi statistika bo'limlarga bo'lingan (Umumiy / Men / Ishim / Top) va diagrammalar bilan ko'rsatiladi.
 
+### Rollar va bloklash
+
+**Xodimlar** sahifasidagi «Amallar» ustunida to'rtta belgi bor:
+
+| Belgi | Nima beradi |
+|---|---|
+| **RTM xodimi** | Murojaatlarni bajaradi, guruhda «Men bajaraman» tugmasi ishlaydi |
+| **Boshliq** | Guruhdagi «👤 Tayinlash» tugmasi ishlaydi; veb-saytda bajaruvchini olib tashlay oladi |
+| **Admin** | Boshliq bilan bir xil huquq. <i>Admin paneliga kirish esa alohida — u email/parol hisobi (`User`), HEMIS shaxsi bilan bog'liq emas.</i> |
+| **Bloklash** | Xodim botga ham, veb-saytga ham kira olmaydi. Botda «🚫 Siz botdan foydalana olmaysiz!» degan xabar chiqadi |
+
+Bloklash HEMIS sinxronizatsiyasidan mustaqil saqlanadi — aks holda keyingi importda o'zi
+ochilib ketardi.
+
+**Murojaatni olgan xodim undan voz kecha olmaydi** — na botda, na vebda. Bu guruh oldida
+olingan majburiyat, va bir bosishlik bekor qilish uni taxminga aylantiradi. Faqat Boshliq
+yoki Admin veb-saytdagi tayinlash formasidan xodimni olib tashlay oladi.
+
 ### RTM guruhi
 
 Bot alohida emas — **xuddi shu bot** guruhga qo'shiladi. RTM xodimi botni guruhga qo'shsa
@@ -60,10 +78,20 @@ kartochka tahrirlanadi — kim olgani, ish holati, yakuniy hisobot, sarflangan v
 shu yerda ko'rinadi. Har bir voqea uchun esa kartochkaga qisqa javob-xabar yoziladi, chunki
 tahrirlash bildirishnoma bermaydi.
 
-Kartochkadagi tugmalar: «✋ Men bajaraman» / «🤝 Men ham qo'shilaman», «🚪 Voz kechaman»,
+Kartochkadagi tugmalar: «✋ Men bajaraman» / «🤝 Men ham qo'shilaman», «👤 Tayinlash»,
 «📎 Materiallar» va «💬 Botda ochish». Oxirgisi shaxsiy chatda o'sha murojaatni ochadi —
 yozishmalar, hisobot va yakunlash o'sha yerda, chunki bularning hammasi matn kiritishni
 talab qiladi va guruhga tegishli emas.
+
+«👤 Tayinlash» bosilganda kartochkaning o'z tugmalari RTM xodimlari ro'yxatiga almashadi;
+F.I.Sh. tanlansa, murojaat o'sha xodimga topshiriladi va unga to'liq brifing yuboriladi.
+Tugma hammaga ko'rinadi (kartochka — umumiy xabar, tugmalari har kimga boshqacha bo'la
+olmaydi), lekin faqat Boshliq yoki Admin foydalana oladi — boshqasi bossa, faqat o'ziga
+ko'rinadigan qalqib chiquvchi xabar chiqadi, chat esa toza qoladi.
+
+Guruhda ko'rsatilgan materiallar **10 daqiqadan so'ng avtomatik o'chiriladi** (bu haqda
+o'sha postning izohida kichkina qilib yozilgan). Fayllar yo'qolmaydi — kartochkadagi tugma
+ularni qayta chaqiradi, veb-saytda esa doim turadi.
 
 Guruhni o'chirish: `/rtm_off`.
 

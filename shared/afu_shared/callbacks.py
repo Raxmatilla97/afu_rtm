@@ -63,5 +63,9 @@ class GrpCB(CallbackData, prefix="g"):
     offered precisely to people who do not yet.
     """
 
-    act: str  # take | leave | files
+    act: str  # take | files | assign | pick | back
     rid: int = 0
+    #: ``pick`` only: which employee the supervisor chose.
+    eid: int = 0
+    #: ``assign`` only: page of the staff picker.
+    page: int = 1

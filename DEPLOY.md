@@ -272,7 +272,8 @@ BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
 Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
 biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`,
-kechikish ogohlantirishlari uchun `d81f4c60a7e3` migratsiyasi kerak — tekshirish:
+kechikish ogohlantirishlari uchun `d81f4c60a7e3`, rollar va bloklash uchun `e5a2b71d9c40`
+migratsiyasi kerak — tekshirish:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend alembic current
@@ -363,6 +364,8 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 | Guruhda "Men bajaraman" bosilsa "avval botga kiring" chiqadi | Bosgan odam botga shaxsan kirmagan yoki admin panelda RTM xodimi deb belgilanmagan |
 | Botda xabarga «reply» qilinsa javob bormaydi | Bog'lanish Redis'da 30 kun saqlanadi — eskirgan yoki Redis tozalangan. Tugmadan foydalaning |
 | Kechikish ogohlantirishi kelmayapti | `worker` ishlayaptimi va murojaatga muddat qo'yilganmi — 9b-bo'lim |
+| Guruhda «Tayinlash» bosilsa "faqat Boshliq yoki Admin" chiqadi | Xodimlar sahifasida o'sha odamga **Boshliq** yoki **Admin** belgisi qo'yilmagan |
+| Bloklangan xodim hali ham kirmoqda | Bloklash `employees.is_blocked` da — `access_revoked` emas. Xodimlar sahifasida holat «🚫 Bloklangan» ko'rinishi kerak |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |
 | Har bir login `unmatched` | HEMIS sync qilinmagan — 6-bosqichga qarang |
 | Frontend eski API manzilga uryapti | `VITE_API_BASE_URL` build vaqtida o'qiladi — `--build` bilan qayta yig'ing |

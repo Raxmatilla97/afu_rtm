@@ -12,7 +12,6 @@ import type {
   Employee,
   RequestAttachmentItem,
   RequestItem,
-  RequestMessageItem,
 } from "@/types";
 
 function dt(value: string | null): string {
@@ -36,6 +35,10 @@ export function RequestDetailPage() {
   const isAdmin = session.kind === "admin";
   const myEmployeeId = session.kind === "employee" ? session.employee.id : null;
   const isStaff = session.kind === "employee" && session.employee.is_rtm_staff;
+  // Panel admins, plus employees marked Boshliq or Admin. Assigning work — and taking
+  // somebody off a job, which is the only place that is possible at all — belongs to them.
+  const canManage =
+    isAdmin || (session.kind === "employee" && session.employee.can_manage_assignments);
   // Membership, not the primary column: a colleague who joined the job gets the same
   // actions as whoever picked it up first.
   const isStaffAssignee =
@@ -61,8 +64,8 @@ export function RequestDetailPage() {
   }, [requestId]);
 
   useEffect(() => {
-    if (isAdmin) employeesApi.list({ isRtmStaff: true }).then(setStaffList);
-  }, [isAdmin]);
+    if (canManage) employeesApi.list({ isRtmStaff: true }).then(setStaffList);
+  }, [canManage]);
 
   function toggleAssignee(employeeId: number) {
     setAssigneeIds((current) =>
@@ -193,12 +196,13 @@ export function RequestDetailPage() {
             </div>
           )}
 
-          {isAdmin && (
+          {canManage && (
             <form onSubmit={handleAssign} className="rounded-xl border border-slate-200 bg-white p-5">
               <div className="mb-1 font-medium text-slate-800">RTM xodimlariga tayinlash</div>
               <p className="mb-3 text-xs text-slate-400">
-                Bir nechta xodimni tanlashingiz mumkin. Birinchi tanlangan xodim mas'ul
-                hisoblanadi.
+                Bir nechta xodimni tanlashingiz mumkin — birinchi tanlangani mas'ul
+                hisoblanadi. Tanlovni olib tashlasangiz, xodim murojaatdan chiqariladi:
+                <b> bu yagona joy</b>, chunki xodim o'zi olgan murojaatidan voz kecha olmaydi.
               </p>
               <div className="mb-3 flex flex-wrap gap-2">
                 {staffList.map((s) => {

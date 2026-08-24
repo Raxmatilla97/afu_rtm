@@ -32,6 +32,22 @@ class Employee(TimestampMixin, Base):
 
     is_rtm_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    #: Head of RTM. May hand a request to somebody else — from the group card or the web —
+    #: and may take a colleague off one.
+    is_supervisor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: Employee-level admin. Everything a supervisor can do; distinct from the ``User``
+    #: account that signs into the admin panel, which is an email/password login and has
+    #: nothing to do with anyone's HEMIS identity.
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    #: Barred by hand from the admin panel. Deliberately NOT ``access_revoked``: that one
+    #: is owned by the HEMIS sync, which clears it again for anybody HEMIS still considers
+    #: active — so a manual ban stored there would quietly undo itself overnight.
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     access_revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     access_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -66,6 +82,16 @@ class Employee(TimestampMixin, Base):
 
         return (
             self.is_active
+            and not self.is_blocked
             and not self.access_revoked
             and self.employee_status_code == HEMIS_ACTIVE_EMPLOYEE_STATUS_CODE
         )
+
+    @property
+    def can_manage_assignments(self) -> bool:
+        """May decide who works on a request, and take somebody off one.
+
+        Blocked or departed people keep the flag in the database but lose the power with
+        it — one check, so a ban cannot be half-applied.
+        """
+        return self.is_eligible and (self.is_supervisor or self.is_admin)

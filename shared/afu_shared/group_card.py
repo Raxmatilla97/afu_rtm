@@ -159,6 +159,14 @@ def build_card_keyboard(
     The "take it" button stays available after somebody has already taken the job — that is
     the point of co-assignment — but disappears once the work is finished or cancelled,
     where joining would mean nothing.
+
+    There is deliberately no "give it back". Taking a request is a commitment somebody made
+    in front of the whole group, and a one-tap undo turns it into a guess. Removing an
+    assignee is a supervisor's decision, taken on the web where it is recorded.
+
+    "Tayinlash" is shown to everyone rather than only to supervisors: a card is one message
+    seen by the whole group, so its buttons cannot vary per viewer. The check happens when
+    it is pressed, and anyone else gets a pop-up only they see.
     """
     rows: list[list[InlineKeyboardButton]] = []
     rid = request.id
@@ -171,17 +179,15 @@ def build_card_keyboard(
     if is_open:
         take_label = "🤝 Men ham qo'shilaman" if assignees else "✋ Men bajaraman"
         rows.append(
-            [InlineKeyboardButton(text=take_label, callback_data=GrpCB(act="take", rid=rid).pack())]
+            [
+                InlineKeyboardButton(
+                    text=take_label, callback_data=GrpCB(act="take", rid=rid).pack()
+                ),
+                InlineKeyboardButton(
+                    text="👤 Tayinlash", callback_data=GrpCB(act="assign", rid=rid).pack()
+                ),
+            ]
         )
-        if assignees:
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        text="🚪 Voz kechaman",
-                        callback_data=GrpCB(act="leave", rid=rid).pack(),
-                    )
-                ]
-            )
 
     extras: list[InlineKeyboardButton] = []
     if attachments:
@@ -197,6 +203,70 @@ def build_card_keyboard(
     if extras:
         rows.append(extras)
 
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#: Names per page in the picker. Two columns of four still fit a phone without the captions
+#: being cut in half.
+PICKER_PAGE_SIZE = 8
+
+
+def build_picker_keyboard(
+    request_id: int,
+    staff: list[Employee],
+    assigned_ids: set[int],
+    page: int,
+    total_pages: int,
+) -> InlineKeyboardMarkup:
+    """The staff list, drawn onto the card itself.
+
+    Swapping the card's own buttons rather than posting a chooser message is what keeps the
+    group clean: picking somebody adds nothing to the chat and leaves nothing behind if the
+    supervisor changes their mind and presses back.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    for index in range(0, len(staff), 2):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=("✅ " if person.id in assigned_ids else "") + person.full_name,
+                    callback_data=GrpCB(act="pick", rid=request_id, eid=person.id).pack(),
+                )
+                for person in staff[index : index + 2]
+            ]
+        )
+
+    if total_pages > 1:
+        nav = []
+        if page > 1:
+            nav.append(
+                InlineKeyboardButton(
+                    text="◀️",
+                    callback_data=GrpCB(act="assign", rid=request_id, page=page - 1).pack(),
+                )
+            )
+        nav.append(
+            InlineKeyboardButton(
+                text=f"{page}/{total_pages}",
+                callback_data=GrpCB(act="assign", rid=request_id, page=page).pack(),
+            )
+        )
+        if page < total_pages:
+            nav.append(
+                InlineKeyboardButton(
+                    text="▶️",
+                    callback_data=GrpCB(act="assign", rid=request_id, page=page + 1).pack(),
+                )
+            )
+        rows.append(nav)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Orqaga", callback_data=GrpCB(act="back", rid=request_id).pack()
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

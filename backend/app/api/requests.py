@@ -139,11 +139,18 @@ async def get_request(
 async def assign_request(
     request_id: int,
     payload: RequestAssign,
-    admin: User | Employee = Depends(get_current_caller),
+    caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
 ) -> RequestResponse:
-    if not isinstance(admin, User):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    # Panel admins, and employees marked Boshliq or Admin. Deciding who does the work — and
+    # taking somebody off a job — is the one thing those two roles exist for, and the whole
+    # point is that it does not have to wait for whoever holds the panel password.
+    if isinstance(caller, Employee) and not caller.can_manage_assignments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Faqat Boshliq yoki Admin tayinlay oladi",
+        )
+    admin_user_id = caller.id if isinstance(caller, User) else None
 
     request = await _get_request_or_404(session, request_id)
     employee_ids = payload.employee_ids()
@@ -171,14 +178,15 @@ async def assign_request(
     request.deadline_at = payload.deadline_at
     # set_assignees owns the assignee table, the primary column and the new/assigned
     # transition, so nothing here touches those directly.
-    await set_assignees(session, request, employee_ids, assigned_by_user_id=admin.id)
+    await set_assignees(session, request, employee_ids, assigned_by_user_id=admin_user_id)
 
     session.add(
         RequestStatusHistory(
             request_id=request.id,
             from_status=old_status,
             to_status=request.status,
-            changed_by_user_id=admin.id,
+            changed_by_user_id=admin_user_id,
+            changed_by_employee_id=caller.id if isinstance(caller, Employee) else None,
             note="Tayinlandi: " + ", ".join(s.full_name for s in staff),
         )
     )

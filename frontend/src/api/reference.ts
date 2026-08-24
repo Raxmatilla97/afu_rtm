@@ -24,6 +24,16 @@ export const employeesApi = {
   promote: (id: number) => api.post<Employee>(`/api/employees/${id}/promote-to-staff`),
   demote: (id: number) => api.post<Employee>(`/api/employees/${id}/demote`),
   revoke: (id: number) => api.post<Employee>(`/api/employees/${id}/revoke`),
+  /** Partial update — only the flags passed are changed. */
+  setRoles: (
+    id: number,
+    roles: Partial<{
+      is_rtm_staff: boolean;
+      is_supervisor: boolean;
+      is_admin: boolean;
+      is_blocked: boolean;
+    }>,
+  ) => api.patch<Employee>(`/api/employees/${id}/roles`, roles),
 };
 
 export const categoriesApi = {

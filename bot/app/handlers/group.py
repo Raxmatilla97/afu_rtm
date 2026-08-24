@@ -18,9 +18,11 @@ from aiogram.filters import (
 )
 from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from arq import ArqRedis
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.assignments import OPEN_FOR_PICKUP, add_assignee, remove_assignee
+from afu_shared.assignments import OPEN_FOR_PICKUP, add_assignee, assignees_of
+from afu_shared.group_card import PICKER_PAGE_SIZE, build_picker_keyboard
 from afu_shared.models import Employee, NotificationChat, Request
 from app.callbacks import GrpCB
 
@@ -53,6 +55,12 @@ NOT_AUTHORIZED = (
     "Bu guruhni faqat <b>RTM xodimi</b> ulay oladi. Botga shaxsan kirib "
     "ro'yxatdan o'tgan RTM xodimi shu yerda <code>/rtm_on</code> buyrug'ini yuborsa, "
     "guruh ulanadi."
+)
+
+#: Shown as a pop-up, so it never lands in the group chat.
+NOT_A_MANAGER = (
+    "🔒 Bu tugma faqat Boshliq yoki Admin uchun.\n\n"
+    "Murojaatni o'zingiz olmoqchi bo'lsangiz — «✋ Men bajaraman» tugmasini bosing."
 )
 
 
@@ -194,29 +202,126 @@ async def take_request(
 
 
 @router.callback_query(GrpCB.filter(F.act == "leave"))
-async def leave_request(
+async def leave_request(callback: CallbackQuery) -> None:
+    """Kept only for cards printed before the button was removed.
+
+    Giving a request back is no longer possible: taking one is a commitment made in front
+    of the group, and a one-tap undo turns it into a guess. Only a supervisor can take
+    somebody off a job, and they do it on the web where the change is recorded.
+    """
+    await callback.answer(
+        "Olingan murojaatdan voz kechib bo'lmaydi. Zarur bo'lsa Boshliq yoki Admin "
+        "veb-saytdan o'zgartiradi.",
+        show_alert=True,
+    )
+
+
+@router.callback_query(GrpCB.filter(F.act == "assign"))
+async def open_picker(
+    callback: CallbackQuery,
+    callback_data: GrpCB,
+    session: AsyncSession,
+    employee: Employee,
+) -> None:
+    """Show the RTM staff list on the card, for a supervisor or admin only.
+
+    The button is on a shared message so everyone can see it; the permission check is here,
+    and anybody else gets a pop-up that only they see. That is the whole reason the check
+    is at press time rather than at draw time.
+    """
+    if not employee.can_manage_assignments:
+        await callback.answer(NOT_A_MANAGER, show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer()
+        return
+
+    request = await session.get(Request, callback_data.rid)
+    if request is None:
+        await callback.answer("Murojaat topilmadi.", show_alert=True)
+        return
+
+    staff = list(
+        (
+            await session.execute(
+                select(Employee)
+                .where(Employee.is_rtm_staff.is_(True), Employee.is_blocked.is_(False))
+                .order_by(Employee.full_name)
+            )
+        ).scalars()
+    )
+    if not staff:
+        await callback.answer("RTM xodimlari ro'yxati bo'sh.", show_alert=True)
+        return
+
+    total_pages = max(1, (len(staff) + PICKER_PAGE_SIZE - 1) // PICKER_PAGE_SIZE)
+    page = min(max(1, callback_data.page), total_pages)
+    start = (page - 1) * PICKER_PAGE_SIZE
+
+    assigned = {row.employee_id for row in await assignees_of(session, request.id)}
+    await callback.answer()
+    await callback.message.edit_reply_markup(
+        reply_markup=build_picker_keyboard(
+            request.id, staff[start : start + PICKER_PAGE_SIZE], assigned, page, total_pages
+        )
+    )
+
+
+@router.callback_query(GrpCB.filter(F.act == "pick"))
+async def pick_assignee(
     callback: CallbackQuery,
     callback_data: GrpCB,
     session: AsyncSession,
     employee: Employee,
     arq_pool: ArqRedis,
 ) -> None:
+    """Hand the request to the chosen staff member."""
+    if not employee.can_manage_assignments:
+        await callback.answer(NOT_A_MANAGER, show_alert=True)
+        return
+
     request = await session.get(Request, callback_data.rid)
     if request is None:
         await callback.answer("Murojaat topilmadi.", show_alert=True)
         return
-
-    if not await remove_assignee(session, request, employee.id):
-        await callback.answer("Siz bu murojaatni olmagansiz.", show_alert=True)
+    if request.status not in OPEN_FOR_PICKUP:
+        await callback.answer("Bu murojaat allaqachon yopilgan.", show_alert=True)
         return
 
+    target = await session.get(Employee, callback_data.eid)
+    if target is None or not target.is_rtm_staff or not target.is_eligible:
+        await callback.answer("Bu xodimni tayinlab bo'lmaydi.", show_alert=True)
+        return
+
+    if not await add_assignee(session, request, target):
+        await callback.answer(f"{target.full_name} allaqachon shu murojaatda.", show_alert=True)
+        return
+
+    # Commit before queueing: the worker redraws the card from its own read of the database.
     await session.commit()
-    await callback.answer("Murojaat ro'yxatingizdan olib tashlandi.")
+    await callback.answer(f"✅ {target.full_name} tayinlandi.")
+
     await arq_pool.enqueue_job(
         "refresh_request_cards",
         request.id,
-        f"🚪 <b>{employee.full_name}</b> — <b>{request.display_number}</b> dan voz kechdi.",
+        f"📌 <b>{employee.full_name}</b> — <b>{request.display_number}</b> ni "
+        f"<b>{target.full_name}</b> ga tayinladi.",
     )
+    # The full brief with every attachment goes to the person who now has to do the work.
+    await arq_pool.enqueue_job("notify_request_assigned", request.id, target.id)
+
+
+@router.callback_query(GrpCB.filter(F.act == "back"))
+async def close_picker(
+    callback: CallbackQuery, callback_data: GrpCB, arq_pool: ArqRedis
+) -> None:
+    """Put the normal card buttons back.
+
+    Routed through the refresher rather than rebuilt here so the card returns to exactly
+    what the worker would draw — including anything that changed while the picker was open.
+    """
+    await callback.answer()
+    await arq_pool.enqueue_job("refresh_request_cards", callback_data.rid)
 
 
 @router.callback_query(GrpCB.filter(F.act == "files"))
