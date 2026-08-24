@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from afu_shared.assignments import assignee_ids
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.media import send_attachments
 from afu_shared.models import Employee, Rating, Request
@@ -221,26 +222,33 @@ async def set_rating(
     if request.status != RequestStatus.COMPLETED.value:
         await callback.answer("Murojaat hali bajarilmagan.", show_alert=True)
         return
-    if request.assigned_to_employee_id is None:
+
+    targets = await assignee_ids(session, request.id)
+    if not targets:
         await callback.answer("Bu murojaat hech kimga tayinlanmagan.", show_alert=True)
         return
 
     existing = (
-        await session.execute(select(Rating).where(Rating.request_id == request.id))
+        await session.execute(select(Rating).where(Rating.request_id == request.id).limit(1))
     ).scalar_one_or_none()
     if existing is not None:
         await callback.answer("Siz allaqachon baholagansiz.", show_alert=True)
         return
 
-    session.add(
+    # One score per person who worked on it: the requester rates the service, and everyone
+    # who delivered it should carry that score on their record.
+    session.add_all(
         Rating(
             request_id=request.id,
-            rated_employee_id=request.assigned_to_employee_id,
+            rated_employee_id=target_id,
             rated_by_employee_id=employee.id,
             score=callback_data.score,
         )
+        for target_id in targets
     )
     await session.flush()
+    await session.commit()
+    await arq_pool.enqueue_job("refresh_request_cards", request.id)
 
     screen = await screens.build_detail(session, employee, request.id, callback_data.page)
     if screen:

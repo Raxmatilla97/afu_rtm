@@ -27,7 +27,7 @@ export function RequestDetailPage() {
   const [messages, setMessages] = useState<RequestMessageItem[]>([]);
   const [attachments, setAttachments] = useState<RequestAttachmentItem[]>([]);
   const [staffList, setStaffList] = useState<Employee[]>([]);
-  const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [deadline, setDeadline] = useState("");
   const [completionNote, setCompletionNote] = useState("");
   const [ratingScore, setRatingScore] = useState(0);
@@ -36,7 +36,10 @@ export function RequestDetailPage() {
   const isAdmin = session.kind === "admin";
   const myEmployeeId = session.kind === "employee" ? session.employee.id : null;
   const isStaff = session.kind === "employee" && session.employee.is_rtm_staff;
-  const isStaffAssignee = myEmployeeId !== null && myEmployeeId === request?.assigned_to_employee_id;
+  // Membership, not the primary column: a colleague who joined the job gets the same
+  // actions as whoever picked it up first.
+  const isStaffAssignee =
+    myEmployeeId !== null && (request?.assignees ?? []).some((a) => a.employee_id === myEmployeeId);
   const isRequester = myEmployeeId !== null && myEmployeeId === request?.requester_employee_id;
 
   async function load() {
@@ -48,6 +51,9 @@ export function RequestDetailPage() {
     setRequest(r);
     setMessages(m);
     setAttachments(a);
+    // Seed the admin form with who is actually on it, so re-saving does not silently
+    // clear the team.
+    setAssigneeIds(r.assignees.map((x) => x.employee_id));
   }
 
   useEffect(() => {
@@ -58,14 +64,24 @@ export function RequestDetailPage() {
     if (isAdmin) employeesApi.list({ isRtmStaff: true }).then(setStaffList);
   }, [isAdmin]);
 
+  function toggleAssignee(employeeId: number) {
+    setAssigneeIds((current) =>
+      current.includes(employeeId)
+        ? current.filter((x) => x !== employeeId)
+        : // Appended, not prepended: the first id is the primary, and re-picking somebody
+          // should not quietly demote the lead the admin chose earlier.
+          [...current, employeeId],
+    );
+  }
+
   async function handleAssign(e: React.FormEvent) {
     e.preventDefault();
-    if (!assigneeId) return;
+    if (assigneeIds.length === 0) return;
     setBusy(true);
     try {
       await requestsApi.assign(
         requestId,
-        Number(assigneeId),
+        assigneeIds,
         deadline ? new Date(deadline).toISOString() : null,
       );
       await load();
@@ -130,10 +146,31 @@ export function RequestDetailPage() {
 
           <div className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
-              <Field label="Tayinlangan" value={request.assigned_to_name || "—"} />
               <Field label="Muddat" value={dt(request.deadline_at)} />
               <Field label="Yaratilgan" value={dt(request.created_at)} />
               <Field label="Bajarilgan" value={dt(request.completed_at)} />
+            </div>
+            <div className="mb-4 text-sm">
+              <div className="text-slate-400">Bajaruvchilar</div>
+              {request.assignees.length === 0 ? (
+                <div className="font-medium text-slate-800">— hali hech kim olmadi</div>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {request.assignees.map((a) => (
+                    <span
+                      key={a.employee_id}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        a.is_primary
+                          ? "bg-brand-50 text-brand-700"
+                          : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {a.is_primary ? "⭐ " : ""}
+                      {a.full_name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="mb-1 text-sm text-slate-400">Tavsif</div>
             <p className="whitespace-pre-wrap text-slate-800">{request.description}</p>
@@ -156,20 +193,33 @@ export function RequestDetailPage() {
 
           {isAdmin && (
             <form onSubmit={handleAssign} className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className="mb-3 font-medium text-slate-800">RTM xodimiga tayinlash</div>
-              <div className="flex flex-wrap gap-3">
-                <select
-                  value={assigneeId}
-                  onChange={(e) => setAssigneeId(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Xodimni tanlang</option>
-                  {staffList.map((s) => (
-                    <option key={s.id} value={s.id}>
+              <div className="mb-1 font-medium text-slate-800">RTM xodimlariga tayinlash</div>
+              <p className="mb-3 text-xs text-slate-400">
+                Bir nechta xodimni tanlashingiz mumkin. Birinchi tanlangan xodim mas'ul
+                hisoblanadi.
+              </p>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {staffList.map((s) => {
+                  const picked = assigneeIds.includes(s.id);
+                  const order = assigneeIds.indexOf(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => toggleAssignee(s.id)}
+                      className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                        picked
+                          ? "border-brand-600 bg-brand-600 text-white"
+                          : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {picked && order === 0 ? "⭐ " : picked ? "✓ " : ""}
                       {s.full_name}
-                    </option>
-                  ))}
-                </select>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-3">
                 <input
                   type="datetime-local"
                   value={deadline}
@@ -178,15 +228,15 @@ export function RequestDetailPage() {
                 />
                 <button
                   type="submit"
-                  disabled={busy || !assigneeId}
+                  disabled={busy || assigneeIds.length === 0}
                   className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
                 >
                   Tayinlash
                 </button>
               </div>
               <p className="mt-2 text-xs text-slate-400">
-                Tayinlangan xodimga Telegram orqali murojaat tafsilotlari va barcha materiallar
-                yuboriladi.
+                Yangi tayinlangan har bir xodimga Telegram orqali murojaat tafsilotlari va barcha
+                materiallar yuboriladi. RTM guruhidagi kartochka ham yangilanadi.
               </p>
             </form>
           )}

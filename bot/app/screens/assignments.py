@@ -4,10 +4,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from afu_shared.assignments import assignees_of, is_assigned
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments
-from afu_shared.models import Employee, Request, RequestMessage
+from afu_shared.models import Employee, Request, RequestAssignee, RequestMessage
 from app.callbacks import AsgCB, Nav
 from app.keyboards.common import menu_button
 from app.services.attachments import attachments_for_request
@@ -25,12 +26,23 @@ def _fmt_dt(value) -> str:
 
 
 async def build_list(session: AsyncSession, employee: Employee, page: int) -> Screen:
+    # Through request_assignees, not Request.assigned_to_employee_id: a colleague who
+    # joined a job somebody else picked up first is just as much on it, and reading the
+    # single "primary" column would hide their own work from them.
     condition = (
-        Request.assigned_to_employee_id == employee.id,
+        RequestAssignee.employee_id == employee.id,
         Request.status.in_(OPEN_STATUSES),
     )
+    joined = select(Request).join(
+        RequestAssignee, RequestAssignee.request_id == Request.id
+    )
     total = (
-        await session.execute(select(func.count()).select_from(Request).where(*condition))
+        await session.execute(
+            select(func.count())
+            .select_from(Request)
+            .join(RequestAssignee, RequestAssignee.request_id == Request.id)
+            .where(*condition)
+        )
     ).scalar_one()
 
     if total == 0:
@@ -44,8 +56,7 @@ async def build_list(session: AsyncSession, employee: Employee, page: int) -> Sc
     requests = list(
         (
             await session.execute(
-                select(Request)
-                .where(*condition)
+                joined.where(*condition)
                 # Soonest deadline first; undated work sinks to the bottom.
                 .order_by(Request.deadline_at.is_(None), Request.deadline_at)
                 .limit(PAGE_SIZE)
@@ -83,7 +94,7 @@ async def build_detail(
     session: AsyncSession, employee: Employee, rid: int, page: int
 ) -> Screen | None:
     request = await session.get(Request, rid)
-    if request is None or request.assigned_to_employee_id != employee.id:
+    if request is None or not await is_assigned(session, rid, employee.id):
         return None
 
     requester = await session.get(Employee, request.requester_employee_id)
@@ -93,6 +104,13 @@ async def build_detail(
         f"Kategoriya: {request.category.label_uz}",
         f"Murojaatchi: {requester.full_name if requester else '—'}",
     ]
+
+    others = [
+        row for row in await assignees_of(session, rid) if row.employee_id != employee.id
+    ]
+    if others:
+        names = ", ".join(row.employee.full_name for row in others if row.employee)
+        lines.append(f"🤝 Hamkorlar: {names}")
     if requester and requester.department:
         lines.append(f"Bo'lim: {requester.department.name}")
     if requester and requester.phone_number:
@@ -155,7 +173,7 @@ async def build_thread(
     session: AsyncSession, employee: Employee, rid: int, page: int, list_page: int
 ) -> Screen | None:
     request = await session.get(Request, rid)
-    if request is None or request.assigned_to_employee_id != employee.id:
+    if request is None or not await is_assigned(session, rid, employee.id):
         return None
 
     # Staff see both directions: their internal notes and the requester-facing exchange.

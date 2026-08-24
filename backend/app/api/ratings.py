@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import RequestStatus
-from afu_shared.models import Employee, Rating, Request
+from afu_shared.models import Employee, Rating, Request, RequestAssignee
 from app.deps import get_db
 from app.schemas.rating import StaffRatingSummary
 
@@ -12,12 +12,16 @@ router = APIRouter(prefix="/ratings", tags=["ratings"])
 
 @router.get("/leaderboard", response_model=list[StaffRatingSummary])
 async def leaderboard(session: AsyncSession = Depends(get_db)) -> list[StaffRatingSummary]:
+    # Counted through request_assignees: a job two people did together counts for both of
+    # them. Reading Request.assigned_to_employee_id would credit only the primary and make
+    # a colleague's contribution vanish from the board.
     completed_counts = dict(
         (
             await session.execute(
-                select(Request.assigned_to_employee_id, func.count())
-                .where(Request.status == RequestStatus.COMPLETED.value, Request.assigned_to_employee_id.is_not(None))
-                .group_by(Request.assigned_to_employee_id)
+                select(RequestAssignee.employee_id, func.count())
+                .join(Request, Request.id == RequestAssignee.request_id)
+                .where(Request.status == RequestStatus.COMPLETED.value)
+                .group_by(RequestAssignee.employee_id)
             )
         ).all()
     )
@@ -59,8 +63,11 @@ async def staff_rating(employee_id: int, session: AsyncSession = Depends(get_db)
 
     completed_count = (
         await session.execute(
-            select(func.count()).where(
-                Request.assigned_to_employee_id == employee_id,
+            select(func.count())
+            .select_from(RequestAssignee)
+            .join(Request, Request.id == RequestAssignee.request_id)
+            .where(
+                RequestAssignee.employee_id == employee_id,
                 Request.status == RequestStatus.COMPLETED.value,
             )
         )

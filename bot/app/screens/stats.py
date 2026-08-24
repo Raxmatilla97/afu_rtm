@@ -8,12 +8,12 @@ at a glance, where "• 2026-03: 14 ta" does not.
 """
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import RequestStatus
 from afu_shared.labels import status_label
-from afu_shared.models import Employee, Rating, Request
+from afu_shared.models import Employee, Rating, Request, RequestAssignee
 from app.callbacks import StatCB
 from app.keyboards.common import menu_button
 from app.ui.anchor import Screen
@@ -172,25 +172,25 @@ async def _mine(session: AsyncSession, employee: Employee) -> str:
 
 
 async def _work(session: AsyncSession, employee: Employee) -> str:
-    done = (
-        await session.execute(
+    # Counted through the assignee table, so work shared with a colleague still counts as
+    # this person's work.
+    def mine(*conditions):
+        return (
             select(func.count())
-            .select_from(Request)
-            .where(
-                Request.assigned_to_employee_id == employee.id,
-                Request.status == RequestStatus.COMPLETED.value,
-            )
+            .select_from(RequestAssignee)
+            .join(Request, Request.id == RequestAssignee.request_id)
+            .where(RequestAssignee.employee_id == employee.id, *conditions)
         )
+
+    done = (
+        await session.execute(mine(Request.status == RequestStatus.COMPLETED.value))
     ).scalar_one()
     open_now = (
         await session.execute(
-            select(func.count())
-            .select_from(Request)
-            .where(
-                Request.assigned_to_employee_id == employee.id,
+            mine(
                 Request.status.in_(
                     (RequestStatus.ASSIGNED.value, RequestStatus.IN_PROGRESS.value)
-                ),
+                )
             )
         )
     ).scalar_one()
@@ -231,8 +231,10 @@ async def _top(session: AsyncSession) -> str:
     Ordered by volume rather than by score on purpose: an average over two ratings would
     otherwise outrank a colleague who closed forty jobs.
 
-    The outer join to ``ratings`` cannot inflate ``completed``: a request may be rated at
-    most once (``ratings.request_id`` is unique), so every joined row is still one request.
+    Counted through ``request_assignees``, so a job two people did together counts once for
+    each of them. The join to ``ratings`` is on the employee as well as the request —
+    ratings now fan out to every assignee, and matching on the request alone would pull in
+    a colleague's row and count the same completion twice.
     """
     completed = func.count(Request.id).label("completed")
     rows = list(
@@ -243,9 +245,16 @@ async def _top(session: AsyncSession) -> str:
                     completed,
                     func.avg(Rating.score).label("avg_score"),
                 )
-                .select_from(Request)
-                .join(Employee, Request.assigned_to_employee_id == Employee.id)
-                .outerjoin(Rating, Rating.request_id == Request.id)
+                .select_from(RequestAssignee)
+                .join(Request, Request.id == RequestAssignee.request_id)
+                .join(Employee, Employee.id == RequestAssignee.employee_id)
+                .outerjoin(
+                    Rating,
+                    and_(
+                        Rating.request_id == Request.id,
+                        Rating.rated_employee_id == RequestAssignee.employee_id,
+                    ),
+                )
                 .where(Request.status == RequestStatus.COMPLETED.value)
                 .group_by(Employee.id, Employee.full_name)
                 .order_by(completed.desc())

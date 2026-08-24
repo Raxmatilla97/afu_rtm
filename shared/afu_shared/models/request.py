@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -7,6 +8,9 @@ from afu_shared.enums import RequestStatus
 from afu_shared.models.base import Base, TimestampMixin
 from afu_shared.models.category import Category
 from afu_shared.models.employee import Employee
+
+if TYPE_CHECKING:
+    from afu_shared.models.request_assignee import RequestAssignee
 
 
 class Request(TimestampMixin, Base):
@@ -35,6 +39,17 @@ class Request(TimestampMixin, Base):
     assigned_to: Mapped["Employee | None"] = relationship(
         "Employee", foreign_keys=[assigned_to_employee_id], lazy="selectin"
     )
+    #: Read-only view of the whole team. ``viewonly`` on purpose: writes go through
+    #: ``afu_shared.assignments``, which also keeps ``assigned_to_employee_id`` and the
+    #: status in step. A second way to mutate the same rows is how those three drift apart.
+    #: ``selectin`` means listing a page of requests costs one extra query, not one per row.
+    assignees: Mapped[list["RequestAssignee"]] = relationship(
+        "RequestAssignee",
+        lazy="selectin",
+        viewonly=True,
+        order_by="[RequestAssignee.is_primary.desc(), RequestAssignee.assigned_at]",
+    )
+
     assigned_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=True
     )

@@ -4,8 +4,10 @@ Every screen change goes through ``render`` on the anchor message, so navigating
 adds a message to the chat.
 """
 
+import re
+
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from arq import ArqRedis
@@ -24,9 +26,14 @@ from app.utils.transient import purge_transients, send_transient
 router = Router(name="commands")
 
 
+#: Deep-link payload that opens one request, e.g. https://t.me/bot?start=req_42.
+_REQUEST_DEEP_LINK = re.compile(r"^req_(\d+)$")
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
+    command: CommandObject,
     state: FSMContext,
     session: AsyncSession,
     employee: Employee | None,
@@ -53,7 +60,37 @@ async def cmd_start(
         return
 
     assert employee is not None
+
+    # A "Botda ochish" button on a group card lands here. Opening the request directly is
+    # the entire value of that button: the alternative is telling someone who tapped a
+    # specific job to go and find it again in a list.
+    match = _REQUEST_DEEP_LINK.match((command.args or "").strip())
+    if match:
+        screen = await _screen_for_request(session, employee, int(match.group(1)))
+        if screen is not None:
+            await render(bot, redis, message.chat.id, screen, force_new=True)
+            return
+        await send_transient(
+            bot, redis, arq_pool, message.chat.id,
+            "Bu murojaatni ochish huquqingiz yo'q yoki u topilmadi.",
+        )
+
     await render(bot, redis, message.chat.id, menu.build_menu(employee), force_new=True)
+
+
+async def _screen_for_request(
+    session: AsyncSession, employee: Employee, rid: int
+) -> Screen | None:
+    """The right view of one request for this person, or None if it is not theirs.
+
+    Tries the staff view first: someone who is both an assignee and the reporter is far
+    more likely to have followed the link in order to work on it.
+    """
+    if employee.is_rtm_staff:
+        screen = await assignments.build_detail(session, employee, rid, 1)
+        if screen is not None:
+            return screen
+    return await my_requests.build_detail(session, employee, rid, 1)
 
 
 @router.message(Command("menu"))

@@ -10,9 +10,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.middlewares.identity import AuthState
+
+#: What a group member sees when they press a card button without having onboarded. The
+#: fix is always the same and always in a DM, so the alert says exactly that.
+GROUP_NOT_ONBOARDED = (
+    "Avval botga shaxsan kiring: botni oching, /start bosing va HEMIS orqali "
+    "ro'yxatdan o'ting."
+)
 
 #: Commands that must work before the user is fully onboarded.
 #:
@@ -42,6 +50,20 @@ class AuthGuardMiddleware(BaseMiddleware):
         # rather than letting the handler run with a missing or ineligible employee.
         from app.screens.auth import show_auth_screen
 
+        # Onboarding is a private conversation — it asks for a HEMIS login and a phone
+        # number. Pushing that into a group would be both useless and a privacy problem.
+        if _is_group(event):
+            if isinstance(event, CallbackQuery):
+                # A pop-up only the presser sees, pointing at the one place this can be
+                # fixed. Nothing is posted into the shared chat.
+                await event.answer(GROUP_NOT_ONBOARDED, show_alert=True)
+                return None
+            # Group messages run on: the only handlers that can see them belong to the
+            # group router, every one of them checks RTM membership itself, and they all
+            # accept a missing employee. Blocking here would instead make /rtm_on answer
+            # with silence for exactly the person who needs to be told why.
+            return await handler(event, data)
+
         if isinstance(event, CallbackQuery):
             await event.answer()
             chat_id = event.message.chat.id if event.message else None
@@ -56,6 +78,17 @@ class AuthGuardMiddleware(BaseMiddleware):
                 chat_id=chat_id, data=data, force_new=isinstance(event, Message)
             )
         return None
+
+
+def _chat_of(event: TelegramObject):
+    if isinstance(event, CallbackQuery):
+        return event.message.chat if event.message else None
+    return event.chat if isinstance(event, Message) else None
+
+
+def _is_group(event: TelegramObject) -> bool:
+    chat = _chat_of(event)
+    return chat is not None and chat.type != ChatType.PRIVATE
 
 
 def _is_always_allowed(event: TelegramObject) -> bool:

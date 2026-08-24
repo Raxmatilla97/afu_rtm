@@ -7,8 +7,18 @@ from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from afu_shared.assignments import assignee_ids, set_assignees
 from afu_shared.enums import AttachmentKind, MessageVisibility, RequestSource, RequestStatus
-from afu_shared.models import Employee, Rating, Request, RequestAttachment, RequestMessage, RequestStatusHistory, User
+from afu_shared.models import (
+    Employee,
+    Rating,
+    Request,
+    RequestAssignee,
+    RequestAttachment,
+    RequestMessage,
+    RequestStatusHistory,
+    User,
+)
 from afu_shared.settings import settings
 from app.arq_pool import get_arq_pool
 from app.deps import get_current_caller, get_db
@@ -76,6 +86,11 @@ async def create_request(
         )
     )
     await session.flush()
+    await session.commit()
+
+    pool = await get_arq_pool()
+    await pool.enqueue_job("publish_request_card", request.id)
+
     await session.refresh(request)
     return RequestResponse.from_request(request)
 
@@ -93,7 +108,9 @@ async def list_requests(
             stmt = stmt.where(
                 or_(
                     Request.requester_employee_id == caller.id,
-                    Request.assigned_to_employee_id == caller.id,
+                    # Membership, not the primary column: a colleague who joined a job
+                    # would otherwise not find it in their own list.
+                    Request.assignees.any(RequestAssignee.employee_id == caller.id),
                 )
             )
         else:
@@ -129,17 +146,28 @@ async def assign_request(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
 
     request = await _get_request_or_404(session, request_id)
-    staff = await session.get(Employee, payload.assigned_to_employee_id)
-    if not staff or not staff.is_rtm_staff:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an RTM staff employee")
+    employee_ids = payload.employee_ids()
+    if not employee_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Kamida bitta xodim tanlang"
+        )
+
+    staff = []
+    for employee_id in employee_ids:
+        candidate = await session.get(Employee, employee_id)
+        if not candidate or not candidate.is_rtm_staff:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Not an RTM staff employee"
+            )
+        staff.append(candidate)
+
+    previously = set(await assignee_ids(session, request.id))
 
     old_status = request.status
-    request.assigned_to_employee_id = staff.id
-    request.assigned_by_user_id = admin.id
-    request.assigned_at = datetime.now(timezone.utc)
     request.deadline_at = payload.deadline_at
-    if request.status == RequestStatus.NEW.value:
-        request.status = RequestStatus.ASSIGNED.value
+    # set_assignees owns the assignee table, the primary column and the new/assigned
+    # transition, so nothing here touches those directly.
+    await set_assignees(session, request, employee_ids, assigned_by_user_id=admin.id)
 
     session.add(
         RequestStatusHistory(
@@ -147,17 +175,28 @@ async def assign_request(
             from_status=old_status,
             to_status=request.status,
             changed_by_user_id=admin.id,
-            note=f"Tayinlandi: {staff.full_name}",
+            note="Tayinlandi: " + ", ".join(s.full_name for s in staff),
         )
     )
     await session.flush()
 
-    # Commit before the job is queued: the worker reads the request back from the database
+    # Commit before the jobs are queued: the worker reads the request back from the database
     # in its own session, and a job that overtakes this transaction would find the old
-    # assignee (or none at all).
+    # assignees (or none at all).
     await session.commit()
     pool = await get_arq_pool()
-    await pool.enqueue_job("notify_request_assigned", request.id)
+    # Only people who were not already on it — re-saving the form with one name added must
+    # not re-brief everybody who has been working on it for an hour.
+    for employee in staff:
+        if employee.id not in previously:
+            await pool.enqueue_job("notify_request_assigned", request.id, employee.id)
+    await pool.enqueue_job(
+        "refresh_request_cards",
+        request.id,
+        "📌 <b>{}</b> — {} ga tayinlandi.".format(
+            request.display_number, ", ".join(s.full_name for s in staff)
+        ),
+    )
 
     await session.refresh(request)
     return RequestResponse.from_request(request)
@@ -173,7 +212,7 @@ async def update_status(
     request = await _get_request_or_404(session, request_id)
 
     if isinstance(caller, Employee):
-        if not caller.is_rtm_staff or request.assigned_to_employee_id != caller.id:
+        if not caller.is_rtm_staff or caller.id not in await assignee_ids(session, request_id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
 
     if payload.status not in {s.value for s in RequestStatus}:
@@ -205,7 +244,7 @@ async def complete_request(
 ) -> RequestResponse:
     request = await _get_request_or_404(session, request_id)
 
-    if isinstance(caller, Employee) and request.assigned_to_employee_id != caller.id:
+    if isinstance(caller, Employee) and caller.id not in await assignee_ids(session, request_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
 
     old_status = request.status
@@ -227,6 +266,11 @@ async def complete_request(
 
     pool = await get_arq_pool()
     await pool.enqueue_job("send_completion_notification", request.id)
+    await pool.enqueue_job(
+        "refresh_request_cards",
+        request.id,
+        f"✅ <b>{request.display_number}</b> bajarildi.",
+    )
 
     await session.refresh(request)
     return RequestResponse.from_request(request)
@@ -422,6 +466,15 @@ async def upload_attachment(
     session.add(attachment)
     await session.flush()
     await session.refresh(attachment)
+
+    if message_id is None:
+        # A file on the request itself is part of what the group card shows. The web form
+        # creates the request first and uploads afterwards, so the card is briefly posted
+        # without its attachments — this is what fills them in.
+        await session.commit()
+        pool = await get_arq_pool()
+        await pool.enqueue_job("refresh_request_cards", request_id)
+
     return RequestAttachmentResponse.from_attachment(attachment)
 
 
@@ -450,26 +503,39 @@ async def rate_request(
     request = await _get_request_or_404(session, request_id)
     if request.requester_employee_id != caller.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your request")
-    if not request.assigned_to_employee_id:
+
+    targets = await assignee_ids(session, request_id)
+    if not targets:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request has no assignee")
 
     existing = (
-        await session.execute(select(Rating).where(Rating.request_id == request_id))
+        await session.execute(select(Rating).where(Rating.request_id == request_id).limit(1))
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already rated")
 
-    rating = Rating(
-        request_id=request_id,
-        rated_employee_id=request.assigned_to_employee_id,
-        rated_by_employee_id=caller.id,
-        score=payload.score,
-        comment=payload.comment,
-    )
-    session.add(rating)
+    # One score, recorded against each person who worked on it. The requester rates the
+    # service they received, not an individual — crediting only the primary assignee would
+    # leave a colleague's work invisible in the leaderboard.
+    ratings = [
+        Rating(
+            request_id=request_id,
+            rated_employee_id=employee_id,
+            rated_by_employee_id=caller.id,
+            score=payload.score,
+            comment=payload.comment,
+        )
+        for employee_id in targets
+    ]
+    session.add_all(ratings)
     await session.flush()
-    await session.refresh(rating)
-    return rating
+    await session.commit()
+
+    pool = await get_arq_pool()
+    await pool.enqueue_job("refresh_request_cards", request_id)
+
+    await session.refresh(ratings[0])
+    return ratings[0]
 
 
 @router.get("/{request_id}/attachments-list", response_model=list[RequestAttachmentResponse])

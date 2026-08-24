@@ -9,6 +9,7 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from afu_shared.assignments import assignee_ids, is_assigned
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.models import Employee, Request, RequestStatusHistory
@@ -31,7 +32,9 @@ async def _guard(
         await callback.answer("Bu bo'lim faqat RTM xodimlari uchun.", show_alert=True)
         return None
     request = await session.get(Request, rid)
-    if request is None or request.assigned_to_employee_id != employee.id:
+    # Membership, not the primary column: a colleague who joined the job has the same
+    # rights on it as whoever picked it up first.
+    if request is None or not await is_assigned(session, rid, employee.id):
         await callback.answer("Topshiriq topilmadi.", show_alert=True)
         return None
     return request
@@ -111,6 +114,9 @@ async def start_work(
     )
     await session.flush()
 
+    await session.commit()
+    await arq_pool.enqueue_job("refresh_request_cards", request.id)
+
     screen = await screens.build_detail(session, employee, request.id, callback_data.page)
     if screen:
         await render(bot, redis, callback.message.chat.id, screen)
@@ -163,7 +169,7 @@ async def complete_request(
     rid, page = data["rid"], data.get("page", 1)
 
     request = await session.get(Request, rid)
-    if request is None or request.assigned_to_employee_id != employee.id:
+    if request is None or not await is_assigned(session, rid, employee.id):
         await state.clear()
         return
 
@@ -199,6 +205,17 @@ async def complete_request(
     # Commit before queueing: the worker reads the report back by id in its own session.
     await session.commit()
     await arq_pool.enqueue_job("send_completion_notification", request.id, row.id)
+
+    team = await assignee_ids(session, request.id)
+    credited = (
+        f" ({len(team)} xodim)" if len(team) > 1 else ""
+    )
+    await arq_pool.enqueue_job(
+        "refresh_request_cards",
+        request.id,
+        f"✅ <b>{request.display_number}</b> bajarildi — "
+        f"<b>{employee.full_name}</b>{credited}.",
+    )
 
     screen = await screens.build_list(session, employee, page)
     await render(bot, redis, message.chat.id, screen, force_new=True)

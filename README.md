@@ -42,11 +42,30 @@ Alfraganus University Raqamliy texnologiyalar markazi (RTM) uchun ichki murojaat
 2. Admin kerakli xodimlarni **Xodimlar** sahifasida "RTM xodimi" deb belgilaydi.
 3. Oddiy xodim Telegram botga (`/start`) yoki veb-interfeysga ("Men xodimman") kirib, HEMIS ID raqami orqali shaxsini tasdiqlaydi (Telegram orqali kontakt ulashish talab qilinadi).
 4. Tasdiqlangan xodim murojaat yaratadi (bot yoki veb). Muammoni yozib ham, **ovozli xabar**, **video**, **aylana video**, rasm yoki hujjat yuborib ham tushuntirishi mumkin.
-5. Admin murojaatni RTM xodimiga tayinlaydi, muddat belgilaydi.
+5. Murojaat **RTM guruhiga** kartochka bo'lib tushadi. Xodim «✋ Men bajaraman» tugmasini bosib o'zi olishi mumkin, yoki admin veb-paneldan tayinlaydi. Bir murojaatni bir necha xodim birgalikda olishi mumkin.
 6. Tayinlangan xodimga Telegramda to'liq brifing keladi: murojaatchi (bo'lim, telefon, Telegram), muddat, tavsif — va murojaatchi yuborgan **barcha materiallar o'z ko'rinishida** qayta yuboriladi (ovozli xabar ovozli xabar bo'lib, aylana video aylana bo'lib qoladi).
 7. RTM xodimi botda ishni boshlaydi, murojaatchi bilan yozishadi (matn yoki media), ichki muhokama qiladi, bajarilgach hisobot bilan yopadi — hisobotni ham ovozli xabar yoki video ko'rinishida qoldirishi mumkin.
 8. Murojaatchiga bildirishnoma va hisobot materiallari boradi, u 1–5 baho qo'yadi.
 9. **Top xodimlar** va **Statistika** sahifalarida natijalar ko'rinadi. Botdagi statistika bo'limlarga bo'lingan (Umumiy / Men / Ishim / Top) va diagrammalar bilan ko'rsatiladi.
+
+### RTM guruhi
+
+Bot alohida emas — **xuddi shu bot** guruhga qo'shiladi. RTM xodimi botni guruhga qo'shsa
+(yoki guruhda `/rtm_on` yozsa), guruh ro'yxatga olinadi. Faqat RTM xodimi ula oladi: aks
+holda istalgan odam botni o'z guruhiga qo'shib, murojaatchilarning ismi va telefoni bilan
+birga barcha murojaatlarni olib turgan bo'lardi.
+
+Har bir murojaat guruhda **bitta kartochka** bo'lib chiqadi va butun umri davomida o'sha
+kartochka tahrirlanadi — kim olgani, ish holati, yakuniy hisobot, sarflangan vaqt va baho
+shu yerda ko'rinadi. Har bir voqea uchun esa kartochkaga qisqa javob-xabar yoziladi, chunki
+tahrirlash bildirishnoma bermaydi.
+
+Kartochkadagi tugmalar: «✋ Men bajaraman» / «🤝 Men ham qo'shilaman», «🚪 Voz kechaman»,
+«📎 Materiallar» va «💬 Botda ochish». Oxirgisi shaxsiy chatda o'sha murojaatni ochadi —
+yozishmalar, hisobot va yakunlash o'sha yerda, chunki bularning hammasi matn kiritishni
+talab qiladi va guruhga tegishli emas.
+
+Guruhni o'chirish: `/rtm_off`.
 
 ### Materiallar qanday saqlanadi
 

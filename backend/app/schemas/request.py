@@ -11,8 +11,22 @@ class RequestCreate(BaseModel):
 
 
 class RequestAssign(BaseModel):
-    assigned_to_employee_id: int
+    """Who should work on this.
+
+    ``assigned_to_employee_ids`` is the real field — a request can be shared between staff.
+    The older single-id form is still accepted so an admin page or script written against
+    the previous API keeps working; the first id in the list is the primary assignee.
+    """
+
+    assigned_to_employee_ids: list[int] = []
+    assigned_to_employee_id: int | None = None
     deadline_at: datetime | None = None
+
+    def employee_ids(self) -> list[int]:
+        if self.assigned_to_employee_ids:
+            # De-duplicated, order preserved: the admin's first pick stays the lead.
+            return list(dict.fromkeys(self.assigned_to_employee_ids))
+        return [self.assigned_to_employee_id] if self.assigned_to_employee_id else []
 
 
 class RequestStatusUpdate(BaseModel):
@@ -136,12 +150,21 @@ class RequesterCard(BaseModel):
         )
 
 
+class AssigneeCard(BaseModel):
+    employee_id: int
+    full_name: str
+    is_primary: bool
+
+
 class RequestResponse(BaseModel):
     id: int
     display_number: str
     requester_employee_id: int
     requester_name: str | None = None
     requester: RequesterCard | None = None
+    #: Everyone on the job. ``assigned_to_*`` above is the primary among them and stays for
+    #: the compact places — list rows, badges — where one name is all that fits.
+    assignees: list[AssigneeCard] = []
     category_slug: str
     category_label: str | None = None
     description: str
@@ -166,6 +189,14 @@ class RequestResponse(BaseModel):
             requester_employee_id=r.requester_employee_id,
             requester_name=r.requester.full_name if r.requester else None,
             requester=RequesterCard.from_employee(r.requester) if r.requester else None,
+            assignees=[
+                AssigneeCard(
+                    employee_id=a.employee_id,
+                    full_name=a.employee.full_name if a.employee else f"#{a.employee_id}",
+                    is_primary=a.is_primary,
+                )
+                for a in r.assignees
+            ],
             category_slug=r.category_slug,
             category_label=r.category.label_uz if r.category else None,
             description=r.description,

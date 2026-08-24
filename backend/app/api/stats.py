@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import RequestStatus
-from afu_shared.models import Employee, Request, User
+from afu_shared.models import Employee, Request, RequestAssignee, User
 from app.deps import get_current_caller, get_db
 from app.schemas.stats import MonthlyCount, StatsSummary
 
@@ -13,7 +13,11 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 def _scope_stmt(stmt, caller: User | Employee):
     if isinstance(caller, Employee):
         if caller.is_rtm_staff:
-            stmt = stmt.where(Request.assigned_to_employee_id == caller.id)
+            # Through the assignee table so shared jobs count for everyone who worked on
+            # them, not only for whoever picked the request up first.
+            stmt = stmt.where(
+                Request.assignees.any(RequestAssignee.employee_id == caller.id)
+            )
         else:
             stmt = stmt.where(Request.requester_employee_id == caller.id)
     return stmt

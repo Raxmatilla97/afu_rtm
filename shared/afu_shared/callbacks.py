@@ -53,3 +53,15 @@ class StatCB(CallbackData, prefix="s"):
     """
 
     view: str  # overview | mine | work | top
+
+
+class GrpCB(CallbackData, prefix="g"):
+    """Buttons on a request card in an RTM group chat.
+
+    A separate factory from ``AsgCB`` because the two answer to different rules: the
+    assignment screens require the presser to already own the request, while these are
+    offered precisely to people who do not yet.
+    """
+
+    act: str  # take | leave | files
+    rid: int = 0

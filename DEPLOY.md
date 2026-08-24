@@ -233,6 +233,33 @@ kerak — "Botga qaytish" tugmasi shundan `https://t.me/<username>` havolasini y
 
 ---
 
+## 9a. RTM guruhi
+
+Alohida bot **kerak emas** — xuddi shu botni guruhga qo'shasiz.
+
+1. Guruhni yarating va **RTM xodimi** (admin panelda «RTM xodimi» deb belgilangan, botga
+   shaxsan kirib ro'yxatdan o'tgan xodim) botni guruhga qo'shsin. Bot darhol ulanish
+   haqida xabar beradi.
+2. Agar botni boshqa odam qo'shgan bo'lsa, guruh ulanmaydi (lekin bot chiqib ketmaydi).
+   Shunda RTM xodimi guruhda `/rtm_on` yozsa yetarli.
+3. O'chirish: `/rtm_off`.
+
+**BotFather'da hech narsa o'zgartirish shart emas.** Privacy mode yoqiq holida ham bot
+guruhda `/` bilan boshlanadigan buyruqlarni va inline tugma bosilishlarini oladi — bizga
+shundan boshqasi kerak emas. Botni admin qilish ham shart emas; faqat guruhda oddiy
+a'zolarga xabar yozish taqiqlangan bo'lsa, botga admin huquqini bering.
+
+`TELEGRAM_BOT_USERNAME` to'ldirilgan bo'lishi kerak — kartochkadagi «💬 Botda ochish»
+tugmasi shundan `https://t.me/<username>?start=req_<id>` havolasini yasaydi.
+
+Tekshirish:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT chat_id, title, is_active FROM notification_chats;"
+```
+
+---
+
 ## 10. O'zgarishlardan keyin qayta deploy
 
 ```bash
@@ -244,7 +271,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
 Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
-biriktirmalari uchun `b2c9d41f7a08` migratsiyasi kerak — tekshirish:
+biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`
+migratsiyasi kerak — tekshirish:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend alembic current
@@ -309,7 +337,9 @@ docker run --rm -v afu_rtm_afu_uploads:/data -v "$PWD":/backup alpine \
 | Botda `/start` har safar qaytadan login so'raydi | Xuddi shu sabab: OAuth hech qachon yakunlanmagan, shuning uchun `employees` da telegram bog'lanish yo'q |
 | Telegram Web'da sayt oq ekran | CSP `frame-ancestors` Telegram'ga ruxsat bermayapti — 4-bo'lim |
 | One-ID dan keyin HEMIS profilida qolib ketadi | HEMIS `authorize` so'rovini davom ettirmaydi. Oraliq sahifaga qaytib tugmani qayta bosing — 9-bo'lim |
-| "Botga qaytish" tugmasi ko'rinmaydi | `.env` da `TELEGRAM_BOT_USERNAME` bo'sh |
+| "Botga qaytish" / "Botda ochish" tugmasi ko'rinmaydi | `.env` da `TELEGRAM_BOT_USERNAME` bo'sh |
+| Guruhga murojaatlar tushmayapti | Guruh ulanmagan — RTM xodimi guruhda `/rtm_on` yozsin, 9a-bo'lim |
+| Guruhda "Men bajaraman" bosilsa "avval botga kiring" chiqadi | Bosgan odam botga shaxsan kirmagan yoki admin panelda RTM xodimi deb belgilanmagan |
 | OAuth'da `invalid_request` / `redirect_uri_mismatch` | `.env` dagi `EMPLOYEE_REDIRECT_URI` HEMIS'da ro'yxatdan o'tgani bilan aynan bir xil emas (scheme, oxiridagi `/`) |
 | Har bir login `unmatched` | HEMIS sync qilinmagan — 6-bosqichga qarang |
 | Frontend eski API manzilga uryapti | `VITE_API_BASE_URL` build vaqtida o'qiladi — `--build` bilan qayta yig'ing |

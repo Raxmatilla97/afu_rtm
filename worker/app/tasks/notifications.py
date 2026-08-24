@@ -13,6 +13,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from sqlalchemy import select
 
+from afu_shared.assignments import assignees_of
 from afu_shared.callbacks import AsgCB, ReqCB
 from afu_shared.db import session_scope
 from afu_shared.enums import MessageVisibility
@@ -123,30 +124,43 @@ async def _deliver(
         await send_attachments(bot, chat_id, attachments)
 
 
-async def notify_request_assigned(ctx: dict, request_id: int) -> None:
+async def notify_request_assigned(
+    ctx: dict, request_id: int, employee_id: int | None = None
+) -> None:
     """Tell an RTM staffer that a request is now theirs, with everything they need.
 
     This is the moment the job actually reaches a person, so it carries the full brief —
     who reported it, how to reach them, the deadline, the description — followed by every
     file the requester sent, each replayed as its original kind so a voice note is still
     playable and a round video is still round.
+
+    ``employee_id`` names who to brief. The group flow passes the person who just pressed
+    "I'll take it", who is not necessarily the primary assignee — somebody joining a job a
+    colleague already picked up needs the same brief, not a shorter one.
     """
     async with session_scope() as session:
         request = await session.get(Request, request_id)
         if request is None:
             logger.error("notify_request_assigned: request %s not found", request_id)
             return
-        if request.assigned_to_employee_id is None:
+
+        target_id = employee_id or request.assigned_to_employee_id
+        if target_id is None:
             return
 
-        assignee = await session.get(Employee, request.assigned_to_employee_id)
+        assignee = await session.get(Employee, target_id)
         if assignee is None or assignee.telegram_user_id is None:
             logger.info(
                 "Request %s assigned to employee %s, who has no Telegram link",
-                request_id, request.assigned_to_employee_id,
+                request_id, target_id,
             )
             return
 
+        colleagues = [
+            row.employee.full_name
+            for row in await assignees_of(session, request_id)
+            if row.employee_id != target_id and row.employee
+        ]
         requester = await session.get(Employee, request.requester_employee_id)
         # RTM staff, so internal material is theirs to see.
         attachments = await _request_attachments(session, request_id, include_internal=True)
@@ -165,6 +179,8 @@ async def notify_request_assigned(ctx: dict, request_id: int) -> None:
                 lines.append(f"Telefon: {requester.phone_number}")
             if requester.telegram_username:
                 lines.append(f"Telegram: @{requester.telegram_username}")
+        if colleagues:
+            lines.append(f"\n🤝 <b>Hamkorlar:</b> {', '.join(colleagues)}")
         lines.append(f"\n⏰ Muddat: {_fmt_dt(request.deadline_at)}")
         lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
         if attachments:

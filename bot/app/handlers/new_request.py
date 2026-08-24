@@ -149,6 +149,17 @@ async def _attachments_of(session: AsyncSession, request_id: int) -> list[Reques
     )
 
 
+async def _announce(session: AsyncSession, arq_pool: ArqRedis, request: Request) -> None:
+    """Publish the request to the RTM groups, once it is finished being written.
+
+    Committing first is not optional: the worker builds the card from its own read of the
+    database, and a job that overtakes this transaction would render a request that is not
+    there yet.
+    """
+    await session.commit()
+    await arq_pool.enqueue_job("publish_request_card", request.id)
+
+
 async def _render_media_screen(
     session: AsyncSession, bot: Bot, redis: Redis, chat_id: int, request: Request
 ) -> None:
@@ -170,6 +181,7 @@ async def attach_no(
     employee: Employee,
     bot: Bot,
     redis: Redis,
+    arq_pool: ArqRedis,
 ) -> None:
     await callback.answer()
     if callback.message is None:
@@ -177,6 +189,7 @@ async def attach_no(
 
     request = await _create_request(session, employee, await state.get_data())
     await state.clear()
+    await _announce(session, arq_pool, request)
     await render(
         bot, redis, callback.message.chat.id,
         screens.build_submitted_screen(request.display_number, "", request.id),
@@ -264,6 +277,7 @@ async def finish_media(
     session: AsyncSession,
     bot: Bot,
     redis: Redis,
+    arq_pool: ArqRedis,
 ) -> None:
     await callback.answer()
     if callback.message is None:
@@ -276,6 +290,9 @@ async def finish_media(
         return
     summary = describe_attachments(await _attachments_of(session, request.id))
     await state.clear()
+    # Announced only now, not when the request row was created: the card carries the
+    # attachments, and posting it mid-upload would show the group an empty one.
+    await _announce(session, arq_pool, request)
 
     await render(
         bot, redis, callback.message.chat.id,

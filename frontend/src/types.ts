@@ -75,12 +75,19 @@ export interface RequesterCard {
   image_local_path: string | null;
 }
 
+export interface AssigneeCard {
+  employee_id: number;
+  full_name: string;
+  is_primary: boolean;
+}
+
 export interface RequestItem {
   id: number;
   display_number: string;
   requester_employee_id: number;
   requester_name: string | null;
   requester: RequesterCard | null;
+  assignees: AssigneeCard[];
   category_slug: string;
   category_label: string | null;
   description: string;

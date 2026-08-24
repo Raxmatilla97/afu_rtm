@@ -3,6 +3,11 @@ import logging
 from arq.connections import RedisSettings
 
 from afu_shared.settings import settings
+from app.tasks.group import (
+    publish_request_card,
+    refresh_request_cards,
+    send_request_files_to_chat,
+)
 from app.tasks.hemis_sync import hemis_sync_task
 from app.tasks.notifications import (
     notify_request_assigned,
@@ -23,6 +28,9 @@ class WorkerSettings:
         notify_request_message,
         notify_request_assigned,
         notify_oauth_login_complete,
+        publish_request_card,
+        refresh_request_cards,
+        send_request_files_to_chat,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 4
