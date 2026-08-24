@@ -1,18 +1,36 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { authApi } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
-import { EmployeeVerifyPanel } from "@/components/EmployeeVerifyPanel";
+
+const OAUTH_ERRORS: Record<string, string> = {
+  denied: "HEMIS orqali kirishga ruxsat berilmadi.",
+  expired: "Kirish havolasining muddati tugagan. Qaytadan urinib ko'ring.",
+  no_code: "HEMIS javob qaytarmadi. Qaytadan urinib ko'ring.",
+  token_error: "HEMIS bilan bog'lanishda xatolik yuz berdi.",
+  userinfo_error: "HEMIS'dan ma'lumotlaringizni olib bo'lmadi.",
+  wrong_type: "Bu tizim faqat universitet xodimlari uchun.",
+  unmatched:
+    "Sizni xodimlar ro'yxatidan topa olmadik. Iltimos, RTM bilan bog'laning.",
+  ineligible: "Hisobingiz faol emas. Iltimos, RTM bilan bog'laning.",
+  subject_conflict: "Hisobingizda nomuvofiqlik aniqlandi. RTM bilan bog'laning.",
+};
 
 export function LoginPage() {
-  const [mode, setMode] = useState<"choose" | "admin" | "employee">("choose");
+  const [mode, setMode] = useState<"choose" | "admin">("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { refresh } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const oauthErrorCode = searchParams.get("oauth_error");
+  const oauthError = oauthErrorCode
+    ? OAUTH_ERRORS[oauthErrorCode] ?? "Kirishda xatolik yuz berdi."
+    : null;
 
   async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -29,6 +47,13 @@ export function LoginPage() {
     }
   }
 
+  function startHemisLogin() {
+    // A full-page navigation, not fetch(): the browser must follow the redirect chain to
+    // HEMIS and back, and the session cookie is set on the callback response.
+    const next = encodeURIComponent("/");
+    window.location.href = `/oauth/login?flow=web&next=${next}`;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -37,14 +62,23 @@ export function LoginPage() {
           <div className="text-sm text-slate-500">Alfraganus University</div>
         </div>
 
+        {oauthError && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {oauthError}
+          </div>
+        )}
+
         {mode === "choose" && (
           <div className="space-y-3">
             <button
-              onClick={() => setMode("employee")}
+              onClick={startHemisLogin}
               className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700"
             >
-              Men xodimman — murojaat yubormoqchiman
+              🔐 HEMIS orqali kirish
             </button>
+            <p className="text-center text-xs text-slate-500">
+              Universitet xodimlari HEMIS hisobi bilan kiradi
+            </p>
             <button
               onClick={() => setMode("admin")}
               className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -93,8 +127,6 @@ export function LoginPage() {
             </button>
           </form>
         )}
-
-        {mode === "employee" && <EmployeeVerifyPanel onBack={() => setMode("choose")} />}
       </div>
     </div>
   );
