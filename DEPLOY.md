@@ -272,7 +272,7 @@ BunkerWeb alohida ishlaydi — bu buyruq unga tegmaydi.
 
 Migratsiyalar `backend` konteyneri ishga tushganda avtomatik bajariladi. Media
 biriktirmalari uchun `b2c9d41f7a08`, guruh va ko'p bajaruvchi uchun `c73e5a19b204`,
-kechikish ogohlantirishlari uchun `d81f4c60a7e3`, rollar va bloklash uchun `e5a2b71d9c40`
+kechikish ogohlantirishlari uchun `d81f4c60a7e3`, rollar va bloklash uchun `e5a2b71d9c40`, xodim-admin uchun `f04c8b2e5a17`
 migratsiyasi kerak — tekshirish:
 
 ```bash

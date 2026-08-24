@@ -5,7 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee, User
-from app.deps import get_current_admin, get_db
+from app.deps import get_admin_actor, get_db
 from app.schemas.employee import EmployeeResponse, EmployeeRolesUpdate
 
 router = APIRouter(prefix="/employees", tags=["employees"])
@@ -16,7 +16,7 @@ async def list_employees(
     q: str | None = None,
     department_id: int | None = None,
     is_rtm_staff: bool | None = None,
-    admin: User = Depends(get_current_admin),
+    actor: User | Employee = Depends(get_admin_actor),
     session: AsyncSession = Depends(get_db),
 ) -> list[EmployeeResponse]:
     stmt = select(Employee)
@@ -35,7 +35,7 @@ async def list_employees(
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)
 async def get_employee(
-    employee_id: int, admin: User = Depends(get_current_admin), session: AsyncSession = Depends(get_db)
+    employee_id: int, actor: User | Employee = Depends(get_admin_actor), session: AsyncSession = Depends(get_db)
 ) -> EmployeeResponse:
     employee = await session.get(Employee, employee_id)
     if not employee:
@@ -45,7 +45,7 @@ async def get_employee(
 
 @router.post("/{employee_id}/promote-to-staff", response_model=EmployeeResponse)
 async def promote_to_staff(
-    employee_id: int, admin: User = Depends(get_current_admin), session: AsyncSession = Depends(get_db)
+    employee_id: int, actor: User | Employee = Depends(get_admin_actor), session: AsyncSession = Depends(get_db)
 ) -> EmployeeResponse:
     employee = await session.get(Employee, employee_id)
     if not employee:
@@ -57,7 +57,7 @@ async def promote_to_staff(
 
 @router.post("/{employee_id}/demote", response_model=EmployeeResponse)
 async def demote_from_staff(
-    employee_id: int, admin: User = Depends(get_current_admin), session: AsyncSession = Depends(get_db)
+    employee_id: int, actor: User | Employee = Depends(get_admin_actor), session: AsyncSession = Depends(get_db)
 ) -> EmployeeResponse:
     employee = await session.get(Employee, employee_id)
     if not employee:
@@ -71,7 +71,7 @@ async def demote_from_staff(
 async def update_roles(
     employee_id: int,
     payload: EmployeeRolesUpdate,
-    admin: User = Depends(get_current_admin),
+    actor: User | Employee = Depends(get_admin_actor),
     session: AsyncSession = Depends(get_db),
 ) -> EmployeeResponse:
     """Set any subset of an employee's flags.
@@ -100,7 +100,7 @@ async def update_roles(
 
 @router.post("/{employee_id}/revoke", response_model=EmployeeResponse)
 async def revoke_access(
-    employee_id: int, admin: User = Depends(get_current_admin), session: AsyncSession = Depends(get_db)
+    employee_id: int, actor: User | Employee = Depends(get_admin_actor), session: AsyncSession = Depends(get_db)
 ) -> EmployeeResponse:
     employee = await session.get(Employee, employee_id)
     if not employee:

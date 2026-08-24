@@ -85,3 +85,25 @@ async def get_current_caller(
         return employee
 
     raise unauthorized
+
+
+async def get_admin_actor(
+    caller: User | Employee = Depends(get_current_caller),
+) -> User | Employee:
+    """Whoever may use the admin panel right now.
+
+    Two identities lead here, and that is deliberate. The panel account
+    (``ADMIN_EMAIL``/``ADMIN_PASSWORD``) is the break-glass login that exists before
+    anyone has been marked anything. An employee flagged **Admin** gets the same powers
+    through their own HEMIS login.
+
+    The second route is not a convenience. Both logins share one session cookie, so
+    signing in with HEMIS replaces a panel session and vice versa — somebody who is both
+    had to keep logging out to swap hats, and lost the admin menus the moment they used the
+    HEMIS button. Attaching the role to the person removes the need to choose.
+    """
+    if isinstance(caller, User):
+        return caller
+    if caller.is_admin and caller.is_eligible:
+        return caller
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")

@@ -14,8 +14,8 @@ from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.enums import OAuthAttemptStatus
-from afu_shared.models import OAuthLoginAttempt, User
-from app.deps import get_current_admin, get_db
+from afu_shared.models import Employee, OAuthLoginAttempt, User
+from app.deps import get_admin_actor, get_db
 
 router = APIRouter(prefix="/oauth-attempts", tags=["oauth-attempts"])
 
@@ -38,7 +38,7 @@ async def list_oauth_attempts(
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User | Employee = Depends(get_admin_actor),
 ) -> list[OAuthLoginAttempt]:
     # Problems first — a successful login needs no attention, an unmatched one does.
     problems_first = case((OAuthLoginAttempt.status == OAuthAttemptStatus.MATCHED.value, 1), else_=0)

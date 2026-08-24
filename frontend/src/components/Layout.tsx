@@ -17,11 +17,15 @@ function NavItem({ to, label }: { to: string; label: string }) {
 }
 
 export function Layout() {
-  const { session, logout } = useAuth();
-  const isAdmin = session.kind === "admin";
+  const { session, isAdmin, logout } = useAuth();
   const isStaff = session.kind === "employee" && session.employee.is_rtm_staff;
+  const isSupervisor = session.kind === "employee" && session.employee.is_supervisor;
   const displayName =
     session.kind === "admin" ? session.admin.email : session.kind === "employee" ? session.employee.full_name : "";
+  // Which login this session came from. The two share one cookie, so naming it out loud is
+  // what answers "why did the admin menu disappear?" — a HEMIS login replaced the panel
+  // session, or the other way round.
+  const via = session.kind === "admin" ? "Admin hisobi" : "HEMIS hisobi";
 
   return (
     <div className="flex min-h-screen">
@@ -33,7 +37,12 @@ export function Layout() {
         <nav className="space-y-1">
           <NavItem to="/" label="Bosh sahifa" />
           <NavItem to="/requests" label="Murojaatlar" />
-          {!isAdmin && <NavItem to="/requests/new" label="Yangi murojaat" />}
+          {/* Whether you can *file* a request depends on being an employee, not on
+              lacking admin rights — an employee flagged Admin is still a person with a
+              broken printer. Only the panel account, which has no employee record, cannot. */}
+          {session.kind === "employee" && (
+            <NavItem to="/requests/new" label="Yangi murojaat" />
+          )}
           <NavItem to="/leaderboard" label="Top xodimlar" />
           <NavItem to="/stats" label="Statistika" />
           {isAdmin && <NavItem to="/employees" label="Xodimlar" />}
@@ -41,12 +50,23 @@ export function Layout() {
           {isAdmin && <NavItem to="/hemis-sync" label="HEMIS sinxronizatsiya" />}
         </nav>
         <div className="mt-8 border-t border-slate-200 pt-4 px-2">
-          <div className="mb-2 truncate text-sm text-slate-700">{displayName}</div>
-          {isStaff && (
-            <div className="mb-2 inline-block rounded bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
-              RTM xodimi
-            </div>
-          )}
+          <div className="truncate text-sm text-slate-700">{displayName}</div>
+          <div className="mb-2 text-xs text-slate-400">{via}</div>
+          <div className="mb-2 flex flex-wrap gap-1">
+            {isAdmin && (
+              <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-white">Admin</span>
+            )}
+            {isSupervisor && (
+              <span className="rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-700">
+                Boshliq
+              </span>
+            )}
+            {isStaff && (
+              <span className="rounded bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
+                RTM xodimi
+              </span>
+            )}
+          </div>
           <button
             onClick={() => logout()}
             className="text-sm text-slate-500 hover:text-red-600"

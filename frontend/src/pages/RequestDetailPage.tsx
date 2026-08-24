@@ -22,7 +22,7 @@ function dt(value: string | null): string {
 export function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
-  const { session } = useAuth();
+  const { session, isAdmin } = useAuth();
 
   const [request, setRequest] = useState<RequestItem | null>(null);
   const [attachments, setAttachments] = useState<RequestAttachmentItem[]>([]);
@@ -53,7 +53,6 @@ export function RequestDetailPage() {
     }
   }
 
-  const isAdmin = session.kind === "admin";
   const myEmployeeId = session.kind === "employee" ? session.employee.id : null;
   const isStaff = session.kind === "employee" && session.employee.is_rtm_staff;
   // Panel admins, plus employees marked Boshliq or Admin. Assigning work — and taking

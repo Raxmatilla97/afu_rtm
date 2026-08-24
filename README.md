@@ -56,11 +56,20 @@ Alfraganus University Raqamliy texnologiyalar markazi (RTM) uchun ichki murojaat
 |---|---|
 | **RTM xodimi** | Murojaatlarni bajaradi, guruhda «Men bajaraman» tugmasi ishlaydi |
 | **Boshliq** | Guruhdagi «👤 Tayinlash» tugmasi ishlaydi; veb-saytda bajaruvchini olib tashlay oladi |
-| **Admin** | Boshliq bilan bir xil huquq. <i>Admin paneliga kirish esa alohida — u email/parol hisobi (`User`), HEMIS shaxsi bilan bog'liq emas.</i> |
+| **Admin** | Boshliq huquqlari + **veb-saytdagi to'liq admin panel**: Xodimlar, Bo'limlar, HEMIS sinxronizatsiya. HEMIS orqali kirganda ochiladi, alohida parol kerak emas |
 | **Bloklash** | Xodim botga ham, veb-saytga ham kira olmaydi. Botda «🚫 Siz botdan foydalana olmaysiz!» degan xabar chiqadi |
 
 Bloklash HEMIS sinxronizatsiyasidan mustaqil saqlanadi — aks holda keyingi importda o'zi
 ochilib ketardi.
+
+**Admin panelga ikkita yo'l bor.** `.env` dagi `ADMIN_EMAIL`/`ADMIN_PASSWORD` hisobi —
+hech kim hali hech nima deb belgilanmagan paytdagi zaxira kirish. **Admin** deb belgilangan
+xodim esa o'z HEMIS hisobi bilan kirib, xuddi shu huquqlarni oladi.
+
+Bu qulaylik uchun emas: ikkala kirish **bitta sessiya cookie**'sini bo'lishadi, ya'ni
+HEMIS orqali kirish admin sessiyasini almashtirib yuboradi. Rolni odamning o'ziga
+biriktirish tanlash zaruratini yo'q qiladi. Yon panelda qaysi hisob bilan
+kirganingiz va rollaringiz doim ko'rinib turadi.
 
 **Murojaatni olgan xodim undan voz kecha olmaydi** — na botda, na vebda. Bu guruh oldida
 olingan majburiyat, va bir bosishlik bekor qilish uni taxminga aylantiradi. Faqat Boshliq

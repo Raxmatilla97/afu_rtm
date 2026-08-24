@@ -10,6 +10,16 @@ type Session =
 
 interface AuthContextValue {
   session: Session;
+  /**
+   * Admin powers, however they were obtained.
+   *
+   * Two identities can carry them: the email/password panel account, and an employee
+   * whose record is flagged Admin. Both logins share one session cookie, so signing in
+   * with HEMIS replaces a panel session — before this existed, somebody who was both lost
+   * the admin menus the moment they used the HEMIS button, with nothing on screen to say
+   * why. Every admin-only gate reads this, never `session.kind`.
+   */
+  isAdmin: boolean;
   loading: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
@@ -53,8 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession({ kind: "none" });
   }, []);
 
+  const isAdmin =
+    session.kind === "admin" || (session.kind === "employee" && session.employee.is_admin);
+
   return (
-    <AuthContext.Provider value={{ session, loading, refresh, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ session, isAdmin, loading, refresh, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

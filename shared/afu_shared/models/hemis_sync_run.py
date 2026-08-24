@@ -14,10 +14,17 @@ class HemisSyncRun(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default=HemisSyncStatus.RUNNING.value)
 
-    triggered_by_user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+    #: Who started this run. Exactly one of the two is set — the panel account, or the
+    #: employee whose HEMIS identity carries the Admin flag. Both nullable because a run
+    #: has one initiator, not two.
+    triggered_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=True
     )
-    triggered_by: Mapped["User"] = relationship("User")
+    triggered_by: Mapped["User | None"] = relationship("User")
+
+    triggered_by_employee_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("employees.id"), nullable=True
+    )
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
