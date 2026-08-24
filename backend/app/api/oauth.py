@@ -40,7 +40,12 @@ def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
     frontend build, and so an error can never surface as a raw stack trace.
     """
     icon = "✅" if ok else "⚠️"
-    close_delay = 1200 if ok else 4000
+    # Only success auto-closes. An error page that closes itself is unreadable, which is
+    # exactly when the user most needs to see what went wrong.
+    button = "" if ok else '<button onclick="closeApp()">Yopish</button>'
+    auto_close = "setTimeout(closeApp, 1200);" if ok else ""
+    haptic = "'success'" if ok else "'error'"
+
     return HTMLResponse(
         f"""<!doctype html>
 <html lang="uz">
@@ -57,6 +62,8 @@ def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
   .icon {{ font-size:56px; line-height:1; }}
   h1 {{ font-size:20px; margin:16px 0 8px; }}
   p {{ font-size:15px; line-height:1.5; color:#94a3b8; margin:0; }}
+  button {{ margin-top:24px; padding:12px 28px; font-size:15px; border:0; border-radius:10px;
+            background:#334155; color:#e2e8f0; cursor:pointer; }}
 </style>
 </head>
 <body>
@@ -64,16 +71,21 @@ def _terminal_page(title: str, message: str, *, ok: bool) -> HTMLResponse:
     <div class="icon">{icon}</div>
     <h1>{title}</h1>
     <p>{message}</p>
+    {button}
   </div>
 <script>
   var tg = window.Telegram && window.Telegram.WebApp;
+  function closeApp() {{
+    if (tg) {{ tg.close(); }} else {{ window.close(); }}
+  }}
   if (tg) {{
     tg.ready();
+    tg.expand();
     if (tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {{
-      tg.HapticFeedback.notificationOccurred({"'success'" if ok else "'error'"});
+      tg.HapticFeedback.notificationOccurred({haptic});
     }}
-    setTimeout(function () {{ tg.close(); }}, {close_delay});
   }}
+  {auto_close}
 </script>
 </body>
 </html>""",
