@@ -30,6 +30,8 @@ class SoftAssetResponse(BaseModel):
     content_type: str | None
     file_size: int | None
     download_count: int
+    #: Impressions in the bot's Soft list. See the model for what counts as one.
+    view_count: int = 0
     is_active: bool
     #: Whether the bot has a Telegram handle for this file yet. Shown in the admin table
     #: because it is the difference between an instant hand-off and a fresh upload.
@@ -51,6 +53,7 @@ class SoftAssetResponse(BaseModel):
             content_type=a.content_type,
             file_size=a.file_size,
             download_count=a.download_count,
+            view_count=a.view_count,
             is_active=a.is_active,
             is_cached=bool(a.telegram_file_id),
             download_url=f"/api/soft/assets/{a.id}/download",

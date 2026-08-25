@@ -56,6 +56,11 @@ class SoftAsset(TimestampMixin, Base):
     telegram_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     download_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: How many times this file has been *shown* to somebody in the bot's Soft list. Paired
+    #: with ``download_count`` it answers the only question worth asking about a shelf of
+    #: drivers: forty people saw it and two took it, so either the title is wrong or nobody
+    #: needs it.
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
     uploaded_by_user_id: Mapped[int | None] = mapped_column(

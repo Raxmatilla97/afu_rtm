@@ -5,7 +5,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee, User
-from app.deps import get_admin_actor, get_db
+from app.deps import get_admin_actor, get_current_caller, get_db
 from app.schemas.employee import EmployeeResponse, EmployeeRolesUpdate
 
 router = APIRouter(prefix="/employees", tags=["employees"])
@@ -31,6 +31,30 @@ async def list_employees(
 
     result = await session.execute(stmt)
     return [EmployeeResponse.from_employee(e) for e in result.scalars()]
+
+
+@router.get("/rtm-staff", response_model=list[EmployeeResponse])
+async def list_rtm_staff(
+    caller: User | Employee = Depends(get_current_caller),
+    session: AsyncSession = Depends(get_db),
+) -> list[EmployeeResponse]:
+    """Who a request can be handed to.
+
+    Declared above ``/{employee_id}`` because FastAPI matches in order, and a literal path
+    that comes second is a path that never matches.
+
+    Open to Boshliq as well as Admin, unlike the full directory below. Assigning work is
+    exactly what the Boshliq role is for, and both the assign form and the staff filter on
+    the request list were dead for them while the only list of staff sat behind an
+    admin-only endpoint — the form rendered with no names in it and looked broken.
+    """
+    if isinstance(caller, Employee) and not caller.can_manage_assignments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Faqat Boshliq yoki Admin"
+        )
+
+    stmt = select(Employee).where(Employee.is_rtm_staff.is_(True)).order_by(Employee.full_name)
+    return [EmployeeResponse.from_employee(e) for e in (await session.execute(stmt)).scalars()]
 
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)

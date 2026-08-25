@@ -22,6 +22,13 @@ export const employeesApi = {
     const qs = params.toString();
     return api.get<Employee[]>(`/api/employees${qs ? `?${qs}` : ""}`);
   },
+  /**
+   * Just the RTM staff, readable by Boshliq as well as Admin.
+   *
+   * `list()` above is admin-only, so a Boshliq calling it got a 403 and an empty assign
+   * form. Anything that only needs "who can take this job" should use this.
+   */
+  rtmStaff: () => api.get<Employee[]>("/api/employees/rtm-staff"),
   promote: (id: number) => api.post<Employee>(`/api/employees/${id}/promote-to-staff`),
   demote: (id: number) => api.post<Employee>(`/api/employees/${id}/demote`),
   revoke: (id: number) => api.post<Employee>(`/api/employees/${id}/revoke`),

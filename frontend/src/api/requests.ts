@@ -1,9 +1,24 @@
 import { api } from "@/api/client";
 import type { RequestAttachmentItem, RequestItem, RequestMessageItem } from "@/types";
 
+export interface RequestFilters {
+  status?: string;
+  categorySlug?: string;
+  /** Only requests this employee is on. Available to Boshliq and Admin, who see everyone. */
+  assigneeEmployeeId?: number;
+}
+
 export const requestsApi = {
-  list: (statusFilter?: string) =>
-    api.get<RequestItem[]>(`/api/requests${statusFilter ? `?status_filter=${statusFilter}` : ""}`),
+  list: (filters: RequestFilters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.status) params.set("status_filter", filters.status);
+    if (filters.categorySlug) params.set("category_slug", filters.categorySlug);
+    if (filters.assigneeEmployeeId !== undefined) {
+      params.set("assignee_employee_id", String(filters.assigneeEmployeeId));
+    }
+    const qs = params.toString();
+    return api.get<RequestItem[]>(`/api/requests${qs ? `?${qs}` : ""}`);
+  },
   get: (id: number) => api.get<RequestItem>(`/api/requests/${id}`),
   create: (category_slug: string, description: string) =>
     api.post<RequestItem>("/api/requests", { category_slug, description }),

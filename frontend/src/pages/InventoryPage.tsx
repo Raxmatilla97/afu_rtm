@@ -176,7 +176,9 @@ export function InventoryPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl">
+    // Full width: eight columns of register, six summary tiles and a filter bar. Anything
+    // narrower just puts a scrollbar under a table the screen could have shown whole.
+    <div>
       <PageHeader
         title="RTM Inventar"
         subtitle="Ombor qoldig'i, sarflar va xaridlar. Har bir o'zgarish sababi bilan yoziladi."
@@ -374,6 +376,15 @@ export function InventoryPage() {
   );
 }
 
+/**
+ * The one place stock changes, and it opens a real dialog to do it.
+ *
+ * This used to expand into a strip of unlabelled inputs inside the table cell — a 16-pixel
+ * number box next to a 24-pixel price box, with the reason picker deciding the sign
+ * invisibly. Booking a purchase as a write-off was one mis-click away and nothing on
+ * screen said which way the number was about to move. The dialog has room to label every
+ * field and to show the resulting quantity before anything is saved.
+ */
 function MovementButton({
   item,
   busy,
@@ -384,92 +395,180 @@ function MovementButton({
   onSubmit: (action: () => Promise<unknown>) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        disabled={busy}
+        className="min-h-9 rounded-full border border-brand-600 px-3 text-xs text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+      >
+        ± Harakat
+      </button>
+      {open && (
+        <MovementModal
+          item={item}
+          busy={busy}
+          onClose={() => setOpen(false)}
+          onSubmit={onSubmit}
+        />
+      )}
+    </>
+  );
+}
+
+function MovementModal({
+  item,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  item: InventoryItem;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (action: () => Promise<unknown>) => Promise<void>;
+}) {
   const [reason, setReason] = useState<string>("purchase");
   const [count, setCount] = useState(1);
   const [price, setPrice] = useState("");
   const [note, setNote] = useState("");
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        disabled={busy}
-        className="rounded-full border border-brand-600 px-2.5 py-1 text-xs text-brand-700 hover:bg-brand-50 disabled:opacity-50"
-      >
-        ± Harakat
-      </button>
-    );
-  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const sign = MOVEMENT_OPTIONS.find(([value]) => value === reason)?.[2] ?? 1;
+  const delta = sign * count;
+  const nextQuantity = item.quantity + delta;
+  // The server refuses a movement that would take stock below zero. Saying so here means
+  // the reader finds out while they can still fix the number, not after a failed save.
+  const wouldGoNegative = nextQuantity < 0;
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (count <= 0) return;
-        void onSubmit(async () => {
-          await inventoryApi.addMovement(item.id, {
-            delta: sign * count,
-            reason,
-            unit_price: price || null,
-            note: note || null,
-          });
-          setOpen(false);
-          setCount(1);
-          setPrice("");
-          setNote("");
-        });
-      }}
-      className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-100 p-2"
-    >
-      <select
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        className="rounded border border-slate-300 px-2 py-1 text-xs"
-      >
-        {MOVEMENT_OPTIONS.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <input
-        type="number"
-        min={1}
-        value={count}
-        onChange={(e) => setCount(Number(e.target.value) || 0)}
-        className="w-16 rounded border border-slate-300 px-2 py-1 text-xs"
-      />
-      <input
-        type="number"
-        min={0}
-        step="0.01"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        placeholder="narxi"
-        className="w-24 rounded border border-slate-300 px-2 py-1 text-xs"
-      />
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="izoh"
-        className="w-28 rounded border border-slate-300 px-2 py-1 text-xs"
-      />
-      <button
-        type="submit"
-        className="rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700"
-      >
-        ✓
-      </button>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        className="rounded px-1.5 py-1 text-xs text-slate-500"
-      >
-        ✖
-      </button>
-    </form>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-slate-800">Inventar harakati</h2>
+            <p className="truncate text-xs text-slate-500">
+              {item.name} · hozirgi qoldiq: {item.quantity} {item.unit}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            ✖
+          </button>
+        </header>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (count <= 0 || wouldGoNegative) return;
+            void onSubmit(async () => {
+              await inventoryApi.addMovement(item.id, {
+                delta,
+                reason,
+                unit_price: price || null,
+                note: note || null,
+              });
+              onClose();
+            });
+          }}
+          className="flex-1 overflow-y-auto p-5"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Sabab" className="sm:col-span-2">
+              <select
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                {MOVEMENT_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Miqdori" hint={`O'lchov birligi: ${item.unit}`}>
+              <input
+                type="number"
+                min={1}
+                value={count}
+                onChange={(e) => setCount(Number(e.target.value) || 0)}
+                className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              />
+            </Field>
+            <Field label="Birlik narxi" hint="Ixtiyoriy — kirim bo'lsa narxni yozib qo'ying">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="masalan 320000"
+                className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              />
+            </Field>
+            <Field label="Izoh" className="sm:col-span-2">
+              <textarea
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Nima uchun? Masalan: 2-qavat printeri uchun olindi"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </Field>
+          </div>
+
+          <div
+            className={`mt-4 rounded-lg px-4 py-3 text-sm ${
+              wouldGoNegative
+                ? "bg-red-50 text-red-700"
+                : delta > 0
+                  ? "bg-emerald-50 text-emerald-800"
+                  : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            {wouldGoNegative ? (
+              <>
+                Omborda {item.quantity} {item.unit} bor — {count} {item.unit} chiqarib
+                bo'lmaydi.
+              </>
+            ) : (
+              <>
+                Saqlangach qoldiq:{" "}
+                <b className="tabular-nums">
+                  {item.quantity} → {nextQuantity} {item.unit}
+                </b>{" "}
+                <span className="tabular-nums">
+                  ({delta > 0 ? "+" : ""}
+                  {delta})
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="submit"
+              disabled={busy || count <= 0 || wouldGoNegative}
+              className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              {busy ? "Saqlanmoqda..." : "💾 Saqlash"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

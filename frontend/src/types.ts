@@ -300,6 +300,8 @@ export interface SoftAsset {
   content_type: string | null;
   file_size: number | null;
   download_count: number;
+  /** How many times the bot has shown this file in its Soft list. */
+  view_count: number;
   is_active: boolean;
   /** The bot already holds a Telegram handle, so the next hand-off costs no upload. */
   is_cached: boolean;

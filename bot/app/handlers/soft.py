@@ -19,7 +19,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import CallbackQuery, FSInputFile
 from arq import ArqRedis
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import SoftAsset, SoftCategory
@@ -103,12 +103,24 @@ async def show_assets(
     total_pages = max(1, (len(assets) + screens.PAGE_SIZE - 1) // screens.PAGE_SIZE)
     page = min(max(1, callback_data.page), total_pages)
     start = (page - 1) * screens.PAGE_SIZE
+    shown = assets[start : start + screens.PAGE_SIZE]
+
+    # A view is "somebody had this file in front of them". This is the only screen in the
+    # product where that happens, so it is the only place that counts one. Paired with
+    # download_count on the web it separates a file nobody wants from one nobody finds.
+    if shown:
+        await session.execute(
+            update(SoftAsset)
+            .where(SoftAsset.id.in_([a.id for a in shown]))
+            .values(view_count=SoftAsset.view_count + 1)
+            # The rows in this session are only used to draw the screen, and nothing on it
+            # shows the counter — so skip the extra SELECT that keeping them in step costs.
+            .execution_options(synchronize_session=False)
+        )
 
     await render(
         bot, redis, callback.message.chat.id,
-        screens.build_asset_screen(
-            category, assets[start : start + screens.PAGE_SIZE], page, total_pages
-        ),
+        screens.build_asset_screen(category, shown, page, total_pages),
     )
 
 

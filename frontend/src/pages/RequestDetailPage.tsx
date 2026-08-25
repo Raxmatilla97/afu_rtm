@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { requestsApi } from "@/api/requests";
 import { describeError } from "@/api/errors";
 import { employeesApi } from "@/api/reference";
@@ -33,6 +33,8 @@ export function RequestDetailPage() {
   const [ratingScore, setRatingScore] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Separate from `error`, which reports a failed action on a request that did load.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   /**
    * Every mutating action goes through here.
@@ -80,11 +82,18 @@ export function RequestDetailPage() {
   }
 
   useEffect(() => {
-    load();
+    setLoadError(null);
+    // Reachable by anyone who types a URL: a staffer who is not on this job, or an
+    // employee who did not report it, is refused here. Without this catch the promise
+    // rejected into nothing and the page sat on "Yuklanmoqda..." for ever.
+    load().catch((e) => setLoadError(describeError(e)));
   }, [requestId]);
 
   useEffect(() => {
-    if (canManage) employeesApi.list({ isRtmStaff: true }).then(setStaffList);
+    // rtmStaff, not the admin-only directory: a Boshliq may assign work but may not read
+    // the whole employee list, so the old call answered 403 and left this form with no
+    // names in it — a button that looked broken rather than forbidden.
+    if (canManage) employeesApi.rtmStaff().then(setStaffList).catch(() => setStaffList([]));
   }, [canManage]);
 
   function toggleAssignee(employeeId: number) {
@@ -135,7 +144,22 @@ export function RequestDetailPage() {
     });
   }
 
-  if (!request) return <div className="text-slate-400">Yuklanmoqda...</div>;
+  if (!request) {
+    if (!loadError) return <div className="text-slate-400">Yuklanmoqda...</div>;
+    return (
+      <div className="mx-auto max-w-xl">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+        <Link
+          to="/requests"
+          className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm text-slate-700 hover:bg-slate-50"
+        >
+          ← Murojaatlar ro'yxati
+        </Link>
+      </div>
+    );
+  }
 
   // Files posted inside the conversation are already rendered in their own bubble; the
   // gallery is for what came with the request itself, so it does not repeat them.

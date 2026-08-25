@@ -49,17 +49,22 @@ export function DashboardPage() {
       ? mine
       : mine.filter((r) => r.assignees.some((a) => a.employee_id === myEmployeeId));
 
-  // The same distinction decides what the list below shows: for RTM staff the jobs they
-  // were given or picked up themselves, and for everybody else the requests they filed.
-  const rows = isStaff ? myWork : mine;
+  // The list below is always personal, never a feed of everything. For RTM staff it is the
+  // work they were given or picked up — completed ones included, since "what have I done"
+  // is half the question — and for everybody else the requests they filed themselves.
+  //
+  // A panel admin has no employee identity and therefore files nothing, so they get an
+  // empty list pointing at /requests rather than a global feed dressed up as "yours".
+  const isEmployee = session.kind === "employee";
+  const rows = isStaff ? myWork : isEmployee ? mine : [];
   const listTitle = isStaff
-    ? "Mening topshiriqlarim"
-    : session.kind === "employee"
-      ? "Mening murojaatlarim"
-      : "So'nggi murojaatlar";
+    ? "Sizga topshirilgan va siz bajargan murojaatlar"
+    : "Siz yuborgan murojaatlar";
   const listEmpty = isStaff
-    ? "Sizga biriktirilgan murojaat yo'q"
-    : "Hozircha murojaat yo'q";
+    ? "Sizga hali murojaat topshirilmagan"
+    : isEmployee
+      ? "Siz hali murojaat yubormagansiz"
+      : "Admin hisobi murojaat yubormaydi — barchasi «Murojaatlar» sahifasida.";
 
   const name = session.kind === "admin" ? session.admin.email : session.kind === "employee" ? session.employee.full_name : "";
 
@@ -145,12 +150,19 @@ export function DashboardPage() {
 
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-bold text-slate-900">
-            {listTitle}
-            {rows.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-slate-400">{rows.length} ta</span>
-            )}
-          </h2>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {listTitle}
+              {rows.length > 0 && (
+                <span className="ml-2 text-sm font-normal text-slate-400">{rows.length} ta</span>
+              )}
+            </h2>
+            <p className="text-xs text-slate-400">
+              {isStaff
+                ? "Ochish uchun «Ko'rish» tugmasini bosing — amallar murojaat sahifasida."
+                : "Faqat ko'rish rejimi — murojaatga o'zgartirish kirita olmaysiz."}
+            </p>
+          </div>
           {/* Only when something is actually hidden — a "see all" next to a complete list
               is a dead end the reader has to click to find out about. */}
           {rows.length > PREVIEW_LIMIT && (

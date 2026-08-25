@@ -49,14 +49,28 @@ async def _get_request_or_404(session: AsyncSession, request_id: int) -> Request
     return request
 
 
-def _check_can_view(request: Request, caller: User | Employee) -> None:
+async def _check_can_view(
+    session: AsyncSession, request: Request, caller: User | Employee
+) -> None:
+    """Who may read one request, its thread and its files.
+
+    RTM staff used to be able to read *every* request by id. Membership is the rule now: a
+    staffer sees the jobs they were given or picked up, plus anything they reported
+    themselves, and nothing else. Boshliq and Admin keep the full view because handing work
+    out is impossible without reading it first — that is the whole of their role.
+    """
     if isinstance(caller, User):
         return
     if request.requester_employee_id == caller.id:
         return
-    if caller.is_rtm_staff:
+    if caller.can_manage_assignments:
         return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+    if caller.is_rtm_staff and caller.id in await assignee_ids(session, request.id):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Bu murojaat sizga biriktirilmagan",
+    )
 
 
 @router.post("", response_model=RequestResponse)
@@ -98,12 +112,21 @@ async def create_request(
 @router.get("", response_model=list[RequestResponse])
 async def list_requests(
     status_filter: str | None = None,
+    category_slug: str | None = None,
+    assignee_employee_id: int | None = None,
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
 ) -> list[RequestResponse]:
+    """Everything the caller is allowed to see, narrowed by the filters they asked for.
+
+    The scope is decided here and not in the query string: a filter is a convenience, and
+    dropping it must never widen what somebody can read.
+    """
     stmt = select(Request)
 
-    if isinstance(caller, Employee):
+    # Boshliq and Admin see the whole queue — they are the ones who decide where a request
+    # goes, and cannot do that from a list of their own work.
+    if isinstance(caller, Employee) and not caller.can_manage_assignments:
         if caller.is_rtm_staff:
             stmt = stmt.where(
                 or_(
@@ -118,6 +141,12 @@ async def list_requests(
 
     if status_filter:
         stmt = stmt.where(Request.status == status_filter)
+    if category_slug:
+        stmt = stmt.where(Request.category_slug == category_slug)
+    if assignee_employee_id is not None:
+        stmt = stmt.where(
+            Request.assignees.any(RequestAssignee.employee_id == assignee_employee_id)
+        )
 
     stmt = stmt.order_by(Request.created_at.desc()).limit(200)
     result = await session.execute(stmt)
@@ -131,7 +160,7 @@ async def get_request(
     session: AsyncSession = Depends(get_db),
 ) -> RequestResponse:
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
     return RequestResponse.from_request(request)
 
 
@@ -295,7 +324,7 @@ async def list_messages(
     session: AsyncSession = Depends(get_db),
 ) -> list[RequestMessageResponse]:
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
 
     stmt = (
         select(RequestMessage, Employee)
@@ -322,7 +351,7 @@ async def post_message(
     session: AsyncSession = Depends(get_db),
 ) -> RequestMessageResponse:
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
 
     if isinstance(caller, Employee) and not caller.is_rtm_staff and payload.visibility != MessageVisibility.TO_REQUESTER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
@@ -400,7 +429,7 @@ async def download_attachment(
     save-to-disk behaviour for anything the reader wants to keep.
     """
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
 
     attachment = await session.get(RequestAttachment, attachment_id)
     if not attachment or attachment.request_id != request_id:
@@ -439,7 +468,7 @@ async def upload_attachment(
 ) -> RequestAttachmentResponse:
     """Attach a file from the web interface."""
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
     if not isinstance(caller, Employee):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Only employees can attach files"
@@ -557,7 +586,7 @@ async def list_attachments(
     session: AsyncSession = Depends(get_db),
 ) -> list[RequestAttachmentResponse]:
     request = await _get_request_or_404(session, request_id)
-    _check_can_view(request, caller)
+    await _check_can_view(session, request, caller)
 
     stmt = (
         select(RequestAttachment)
