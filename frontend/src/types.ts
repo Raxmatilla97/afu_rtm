@@ -29,6 +29,7 @@ export interface Department {
 
 export interface Employee {
   id: number;
+  hemis_id: number | null;
   employee_id_number: string;
   full_name: string;
   department_id: number | null;
@@ -41,12 +42,23 @@ export interface Employee {
   is_admin: boolean;
   /** Set by hand in the admin panel. Separate from access_revoked, which HEMIS owns. */
   is_blocked: boolean;
+  blocked_at: string | null;
   access_revoked: boolean;
+  access_revoked_at: string | null;
   telegram_user_id: number | null;
   telegram_username: string | null;
   phone_number: string | null;
   verified_at: string | null;
   image_local_path: string | null;
+  /** What HEMIS said the photo is. Null with no local copy = HEMIS never offered one. */
+  image_source_url: string | null;
+  hemis_login: string | null;
+  hemis_email: string | null;
+  hemis_phone: string | null;
+  hemis_university_id: string | null;
+  oauth_verified_at: string | null;
+  last_synced_at: string | null;
+  created_at: string | null;
 }
 
 export interface Category {

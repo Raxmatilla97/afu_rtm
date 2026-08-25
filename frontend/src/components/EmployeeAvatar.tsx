@@ -13,6 +13,9 @@ const SIZES = {
   sm: "h-9 w-9 text-xs",
   md: "h-11 w-11 text-sm",
   lg: "h-14 w-14 text-lg",
+  // For the detail dialog, where the photo is one of the things being looked at rather
+  // than a marker next to a name.
+  xl: "h-28 w-28 text-3xl",
 } as const;
 
 /**

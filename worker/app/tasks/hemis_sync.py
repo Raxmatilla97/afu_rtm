@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -191,6 +192,38 @@ async def _download_pending_images(pending: dict[str, str]) -> dict[str, str]:
     return results
 
 
+def _stored_image_names() -> set[str]:
+    """Every employee photo actually on disk, listed once per run.
+
+    One directory listing rather than a stat() per employee: the check below runs for a few
+    thousand rows and the answer comes from the same directory every time.
+    """
+    try:
+        return {entry.name for entry in (Path(settings.storage_root) / "employees").iterdir()}
+    except OSError:
+        # No directory yet on a first run, or a volume that cannot be read. Treating every
+        # photo as missing is the safe direction: it re-downloads rather than skipping.
+        return set()
+
+
+def _image_refetch_reason(row: Employee, image_url: str, stored: set[str]) -> str | None:
+    """Why this employee's photo has to be fetched again, or None to leave it alone.
+
+    The third case is the one that used to be missed. A storage volume recreated between
+    deploys leaves every ``image_local_path`` in the database pointing at a file that is no
+    longer there, and the old check — URL changed, or no path recorded — was satisfied by
+    the stale path. Re-syncing could therefore never repair the photos: the button ran, the
+    log said nothing was needed, and the page stayed full of initials.
+    """
+    if image_url != row.image_source_url:
+        return "url-changed"
+    if not row.image_local_path:
+        return "never-downloaded"
+    if Path(row.image_local_path).name not in stored:
+        return "file-missing"
+    return None
+
+
 async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: dict[int, int], run_start: datetime) -> tuple[int, int, int]:
     existing = {e.employee_id_number: e for e in (await session.execute(select(Employee))).scalars()}
 
@@ -198,6 +231,8 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
     updated = 0
     revoked = 0
     pending_images: dict[str, str] = {}
+    stored_images = _stored_image_names()
+    refetch_reasons: Counter[str] = Counter()
 
     for item in emp_items:
         employee_id_number = item["employee_id_number"]
@@ -246,12 +281,9 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
             if row.access_revoked:
                 row.access_revoked = False
                 row.access_revoked_at = None
-            # Re-fetch when the URL changed, and also when we have a URL but no local copy:
-            # a run that recorded the source and then failed to download would otherwise
-            # never try again, and re-syncing would look like it did nothing.
-            if image_url and (
-                image_url != row.image_source_url or not row.image_local_path
-            ):
+            reason = _image_refetch_reason(row, image_url, stored_images) if image_url else None
+            if reason:
+                refetch_reasons[reason] += 1
                 pending_images[employee_id_number] = image_url
         elif not row.access_revoked:
             row.access_revoked = True
@@ -262,12 +294,26 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
 
     downloaded = await _download_pending_images(pending_images)
     logger.info(
-        'Employee photos: %s requested, %s downloaded', len(pending_images), len(downloaded)
+        "Employee photos: %s on disk before this run, %s requested (%s), %s downloaded",
+        len(stored_images),
+        len(pending_images),
+        dict(refetch_reasons) or "nothing to fetch",
+        len(downloaded),
     )
     for employee_id_number, local_path in downloaded.items():
         row = existing[employee_id_number]
         row.image_source_url = pending_images[employee_id_number]
         row.image_local_path = local_path
+
+    # A path pointing at a file that is gone is worse than no path at all: the interface
+    # keeps requesting it and every list flashes a broken image before falling back to
+    # initials. If the repair download did not succeed either, say so in the data.
+    for employee_id_number in pending_images:
+        if employee_id_number in downloaded:
+            continue
+        row = existing[employee_id_number]
+        if row.image_local_path and Path(row.image_local_path).name not in stored_images:
+            row.image_local_path = None
     await session.flush()
 
     # Employees entirely absent from this run's response (disappeared from HEMIS) get revoked too.
