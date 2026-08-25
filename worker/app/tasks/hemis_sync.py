@@ -24,17 +24,27 @@ def _image_extension(url: str) -> str:
 
 
 #: HEMIS installs do not agree on what the photo field is called, and reading only one of
-#: them is indistinguishable from an employee having no photo — which is exactly how this
-#: went unnoticed. Tried in order; the first non-empty one wins.
+#: them is indistinguishable from an employee having no photo. Preference order, not a
+#: search: every one of these that carries a URL is tried in turn until a download actually
+#: succeeds, because a field being present says nothing about it being served.
 IMAGE_KEYS = ("image_full", "image", "picture", "photo", "avatar")
 
 
-def _image_url_of(item: dict[str, Any]) -> tuple[str | None, str | None]:
-    """The employee's photo URL and which key it came from.
+def _image_candidates(item: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every photo URL this employee item offers, as ``(url, key)``, best first.
+
+    All of them, not the first one found. HEMIS at Alfraganus returns two: ``image_full``,
+    the original upload, and ``image``, a 320px crop. Every ``image_full`` answers 404
+    there — the originals are not on the static host — while every ``image`` answers 200.
+    Committing to the first field that had a value therefore meant a sync across the whole
+    staff list downloaded nothing, and the interface showed initials for everybody with no
+    sign that anything had failed.
 
     Relative paths are resolved against the HEMIS base URL: some installs return
     ``/uploads/…`` rather than a full address, and httpx cannot fetch that on its own.
     """
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for key in IMAGE_KEYS:
         raw = item.get(key)
         if isinstance(raw, dict):
@@ -48,8 +58,11 @@ def _image_url_of(item: dict[str, Any]) -> tuple[str | None, str | None]:
             url = f"https:{url}"
         elif url.startswith("/"):
             url = f"{settings.api_hemis_url.rstrip('/')}{url}"
-        return url, key
-    return None, None
+        if url in seen:
+            continue
+        seen.add(url)
+        candidates.append((url, key))
+    return candidates
 
 
 async def _sync_departments(session, dept_items: list[dict[str, Any]]) -> tuple[dict[int, int], int, int, set[int]]:
@@ -120,57 +133,79 @@ IMAGE_DOWNLOAD_TIMEOUT = 15.0
 
 
 async def _download_employee_image(
-    client: httpx.AsyncClient, semaphore: asyncio.Semaphore, employee_id_number: str, image_url: str
-) -> tuple[str, str | None]:
+    client: httpx.AsyncClient,
+    semaphore: asyncio.Semaphore,
+    employee_id_number: str,
+    candidates: list[tuple[str, str]],
+    failures: Counter[str],
+) -> tuple[str, tuple[str, str] | None]:
+    """Try this employee's photo URLs in turn; return the first one that actually arrives.
+
+    Returns ``(employee_id_number, (local_path, url_used))``, or ``(id, None)`` if every
+    candidate failed. The URL that worked is returned rather than assumed, because it is
+    what gets stored as ``image_source_url`` and compared against on the next run.
+
+    Trying more than one is the whole point. At Alfraganus every ``image_full`` answers 404
+    while the ``image`` crop beside it answers 200 — stopping at the first URL the item
+    offered meant a sync over 700 employees downloaded nothing at all, and the interface
+    showed initials for everybody with no sign that anything had gone wrong.
+    """
     dest_dir = Path(settings.storage_root) / "employees"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_path = dest_dir / f"{employee_id_number}{_image_extension(image_url)}"
 
     async with semaphore:
-        try:
-            resp = await client.get(image_url)
-        except Exception as exc:
-            # The status code and the exception type are the whole diagnosis. Collapsing
-            # every failure into one generic line is why a 401 from HEMIS looked identical
-            # to a DNS problem, and neither got fixed.
-            logger.warning(
-                "Image for %s: request to %s failed: %r", employee_id_number, image_url, exc
-            )
-            return employee_id_number, None
+        for image_url, key in candidates:
+            # Per-URL failures are counted rather than logged one line at a time: with one
+            # dead field across the whole staff list that is 700 identical warnings, and
+            # the aggregate below says the same thing in one line.
+            try:
+                resp = await client.get(image_url)
+            except Exception as exc:
+                failures[f"{key}:{type(exc).__name__}"] += 1
+                logger.debug("Image for %s: %s failed: %r", employee_id_number, image_url, exc)
+                continue
 
-        if resp.status_code != 200:
-            logger.warning(
-                "Image for %s: %s returned HTTP %s (%s bytes)",
-                employee_id_number, image_url, resp.status_code, len(resp.content),
-            )
-            return employee_id_number, None
+            if resp.status_code != 200:
+                failures[f"{key}:HTTP {resp.status_code}"] += 1
+                continue
 
-        content_type = resp.headers.get("content-type", "")
-        if not content_type.startswith("image/"):
-            # HEMIS answers an unauthenticated or missing image with an HTML login page,
-            # which is a perfectly successful 200 and a completely useless file.
-            logger.warning(
-                "Image for %s: %s returned %r, not an image", employee_id_number, image_url, content_type
-            )
-            return employee_id_number, None
+            content_type = resp.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                # HEMIS answers a missing or unauthenticated image with an HTML page,
+                # which is a perfectly successful 200 and a completely useless file.
+                failures[f"{key}:{content_type or 'no content-type'}"] += 1
+                continue
 
-        try:
-            dest_path.write_bytes(resp.content)
-        except OSError as exc:
-            logger.error("Image for %s: cannot write %s: %r", employee_id_number, dest_path, exc)
-            return employee_id_number, None
+            dest_path = dest_dir / f"{employee_id_number}{_image_extension(image_url)}"
+            try:
+                dest_path.write_bytes(resp.content)
+            except OSError as exc:
+                logger.error(
+                    "Image for %s: cannot write %s: %r", employee_id_number, dest_path, exc
+                )
+                failures["write-failed"] += 1
+                return employee_id_number, None
 
-    return employee_id_number, f"employees/{dest_path.name}"
+            return employee_id_number, (f"employees/{dest_path.name}", image_url)
+
+    return employee_id_number, None
 
 
-async def _download_pending_images(pending: dict[str, str]) -> dict[str, str]:
-    """pending: employee_id_number -> image_url. Returns employee_id_number -> local_path for successes."""
+async def _download_pending_images(
+    pending: dict[str, list[tuple[str, str]]],
+) -> dict[str, tuple[str, str]]:
+    """pending: employee_id_number -> [(url, key), …]. Returns the successes.
+
+    A success is ``(local_path, url_used)``: which of the offered URLs actually answered
+    with an image is worth recording, because that is what the next run compares against.
+    """
     if not pending:
         return {}
 
     semaphore = asyncio.Semaphore(IMAGE_DOWNLOAD_CONCURRENCY)
     limits = httpx.Limits(max_connections=IMAGE_DOWNLOAD_CONCURRENCY, max_keepalive_connections=IMAGE_DOWNLOAD_CONCURRENCY)
-    results: dict[str, str] = {}
+    results: dict[str, tuple[str, str]] = {}
+    failures: Counter[str] = Counter()
 
     # The same bearer token the API calls use. Employee photos live behind the same auth on
     # some installs and are public on others; sending it costs nothing where it is not
@@ -182,12 +217,18 @@ async def _download_pending_images(pending: dict[str, str]) -> dict[str, str]:
         timeout=IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True, limits=limits, headers=headers
     ) as client:
         tasks = [
-            _download_employee_image(client, semaphore, employee_id_number, image_url)
-            for employee_id_number, image_url in pending.items()
+            _download_employee_image(client, semaphore, employee_id_number, candidates, failures)
+            for employee_id_number, candidates in pending.items()
         ]
-        for employee_id_number, local_path in await asyncio.gather(*tasks):
-            if local_path:
-                results[employee_id_number] = local_path
+        for employee_id_number, outcome in await asyncio.gather(*tasks):
+            if outcome:
+                results[employee_id_number] = outcome
+
+    if failures:
+        # One line naming every way a URL failed, with counts. A field that is dead for the
+        # whole institution shows up here as a single number, which is the difference
+        # between "HEMIS moved the photos" and "our token expired".
+        logger.info("Employee photo failures by URL: %s", dict(failures))
 
     return results
 
@@ -206,21 +247,28 @@ def _stored_image_names() -> set[str]:
         return set()
 
 
-def _image_refetch_reason(row: Employee, image_url: str, stored: set[str]) -> str | None:
+def _image_refetch_reason(
+    row: Employee, candidates: list[tuple[str, str]], stored: set[str]
+) -> str | None:
     """Why this employee's photo has to be fetched again, or None to leave it alone.
 
-    The third case is the one that used to be missed. A storage volume recreated between
-    deploys leaves every ``image_local_path`` in the database pointing at a file that is no
-    longer there, and the old check — URL changed, or no path recorded — was satisfied by
-    the stale path. Re-syncing could therefore never repair the photos: the button ran, the
-    log said nothing was needed, and the page stayed full of initials.
+    Checked in this order for a reason. "file-missing" is the case that used to be
+    unreachable: a storage volume recreated between deploys leaves every
+    ``image_local_path`` pointing at a file that is no longer there, and the old check —
+    URL changed, or no path recorded — was satisfied by the stale path, so re-syncing could
+    never repair the photos.
+
+    The URL comparison asks whether the stored source is still *one of* the offered URLs
+    rather than equal to the first one. The download falls back between fields, so the URL
+    that worked is usually not the first candidate — comparing against the first would
+    re-download every photo on every run for ever.
     """
-    if image_url != row.image_source_url:
-        return "url-changed"
     if not row.image_local_path:
         return "never-downloaded"
     if Path(row.image_local_path).name not in stored:
         return "file-missing"
+    if row.image_source_url not in {url for url, _ in candidates}:
+        return "url-changed"
     return None
 
 
@@ -230,7 +278,7 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
     created = 0
     updated = 0
     revoked = 0
-    pending_images: dict[str, str] = {}
+    pending_images: dict[str, list[tuple[str, str]]] = {}
     stored_images = _stored_image_names()
     refetch_reasons: Counter[str] = Counter()
 
@@ -246,10 +294,11 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
 
         department_hemis_id = (item.get("department") or {}).get("id")
         local_department_id = dept_map.get(department_hemis_id) if department_hemis_id else None
-        image_url, image_key = _image_url_of(item)
-        if image_key and image_key not in _seen_image_keys:
-            _seen_image_keys.add(image_key)
-            logger.info("HEMIS employee photos arrive under key %r", image_key)
+        image_candidates = _image_candidates(item)
+        for _, image_key in image_candidates:
+            if image_key not in _seen_image_keys:
+                _seen_image_keys.add(image_key)
+                logger.info("HEMIS employee photos arrive under key %r", image_key)
 
         if row is None:
             row = Employee(
@@ -281,10 +330,14 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
             if row.access_revoked:
                 row.access_revoked = False
                 row.access_revoked_at = None
-            reason = _image_refetch_reason(row, image_url, stored_images) if image_url else None
+            reason = (
+                _image_refetch_reason(row, image_candidates, stored_images)
+                if image_candidates
+                else None
+            )
             if reason:
                 refetch_reasons[reason] += 1
-                pending_images[employee_id_number] = image_url
+                pending_images[employee_id_number] = image_candidates
         elif not row.access_revoked:
             row.access_revoked = True
             row.access_revoked_at = datetime.now(timezone.utc)
@@ -300,9 +353,9 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
         dict(refetch_reasons) or "nothing to fetch",
         len(downloaded),
     )
-    for employee_id_number, local_path in downloaded.items():
+    for employee_id_number, (local_path, used_url) in downloaded.items():
         row = existing[employee_id_number]
-        row.image_source_url = pending_images[employee_id_number]
+        row.image_source_url = used_url
         row.image_local_path = local_path
 
     # A path pointing at a file that is gone is worse than no path at all: the interface
