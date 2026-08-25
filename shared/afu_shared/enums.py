@@ -11,6 +11,11 @@ class RequestStatus(StrEnum):
     WAITING = "waiting"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    #: Sent back by a Boshliq or Admin as wrongly filed — wrong department, not enough to
+    #: act on, a duplicate. Distinct from ``cancelled``, which is the requester giving up
+    #: on a request RTM accepted: a returned one never entered the queue, so it is hidden
+    #: from the working list instead of sitting in it as closed noise.
+    RETURNED = "returned"
 
 
 class InventoryStatus(StrEnum):

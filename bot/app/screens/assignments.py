@@ -131,6 +131,14 @@ async def build_detail(
             f"\nKutish muddati: {_fmt_dt(request.waiting_until)}"
         )
 
+    if request.status == RequestStatus.RETURNED.value:
+        # The reason, right where the buttons used to be. This screen is reachable from an
+        # old message long after the request left the list, and "the buttons are gone" is
+        # not an explanation anybody can act on.
+        lines.append("")
+        lines.append(f"🚫 <b>Qaytarib yuborilgan:</b> {_fmt_dt(request.returned_at)}")
+        lines.append(f"Sabab: {request.return_reason or '—'}")
+
     lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
 
     used = await used_on_request(session, rid)
@@ -144,8 +152,13 @@ async def build_detail(
     if files:
         lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(files)}")
 
+    # Closed covers returned as well as finished: reading the thread and the files stays
+    # available, because they are the record of what happened, but nothing that changes
+    # the request survives on a screen the request has already moved past.
+    closed = request.status not in OPEN_STATUSES
+
     rows: list[list[InlineKeyboardButton]] = []
-    if request.status in (RequestStatus.ASSIGNED.value, RequestStatus.WAITING.value):
+    if not closed and request.status in (RequestStatus.ASSIGNED.value, RequestStatus.WAITING.value):
         rows.append(
             [
                 InlineKeyboardButton(
@@ -181,14 +194,16 @@ async def build_detail(
             )
         )
     rows.append(thread_row)
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="✅ Bajarildi", callback_data=AsgCB(act="complete", rid=rid, page=page).pack()
-            )
-        ]
-    )
-    if request.status != RequestStatus.WAITING.value:
+    if not closed:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ Bajarildi",
+                    callback_data=AsgCB(act="complete", rid=rid, page=page).pack(),
+                )
+            ]
+        )
+    if not closed and request.status != RequestStatus.WAITING.value:
         rows.append(
             [
                 InlineKeyboardButton(

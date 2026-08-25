@@ -72,6 +72,7 @@ def _summary_from(rows: dict[str, int]) -> StatsSummary:
         waiting_count=rows.get(RequestStatus.WAITING.value, 0),
         completed_count=rows.get(RequestStatus.COMPLETED.value, 0),
         cancelled_count=rows.get(RequestStatus.CANCELLED.value, 0),
+        returned_count=rows.get(RequestStatus.RETURNED.value, 0),
     )
 
 

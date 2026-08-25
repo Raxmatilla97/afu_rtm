@@ -32,6 +32,9 @@ export const requestsApi = {
     api.post<RequestItem>(`/api/requests/${id}/status`, { status, note }),
   complete: (id: number, completion_note: string) =>
     api.post<RequestItem>(`/api/requests/${id}/complete`, { completion_note }),
+  /** Boshliq/Admin only. The reason reaches the reporter's Telegram, so it is required. */
+  returnToRequester: (id: number, reason: string) =>
+    api.post<RequestItem>(`/api/requests/${id}/return`, { reason }),
   messages: (id: number) => api.get<RequestMessageItem[]>(`/api/requests/${id}/messages`),
   postMessage: (
     id: number,

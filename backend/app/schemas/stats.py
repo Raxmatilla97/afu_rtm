@@ -14,6 +14,7 @@ class StatsSummary(BaseModel):
     waiting_count: int = 0
     completed_count: int
     cancelled_count: int
+    returned_count: int = 0
 
 
 class MonthlyPoint(BaseModel):

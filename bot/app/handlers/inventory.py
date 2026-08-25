@@ -16,7 +16,7 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.assignments import is_assigned
+from afu_shared.assignments import OPEN_FOR_PICKUP, is_assigned
 from afu_shared.enums import RequestStatus
 from afu_shared.inventory import (
     NotEnoughStock,
@@ -316,6 +316,13 @@ async def ask_wait_duration(
     if request is None or not await is_assigned(session, request.id, employee.id):
         await callback.answer("Topshiriq topilmadi.", show_alert=True)
         return
+    # Nothing to park: a returned or finished request is out of the queue already, and the
+    # button only survives on a screen drawn before it left.
+    if request.status not in OPEN_FOR_PICKUP:
+        await callback.answer(
+            "Bu murojaat yopilgan yoki qaytarib yuborilgan.", show_alert=True
+        )
+        return
 
     await state.set_state(None)
     await render(
@@ -368,6 +375,11 @@ async def park_request(
     request = await session.get(Request, data.get("rid", 0))
     if request is None:
         await state.clear()
+        return
+    # Typing the reason takes a minute, and a supervisor can return the request inside it.
+    if request.status not in OPEN_FOR_PICKUP:
+        await state.clear()
+        await message.answer("Bu murojaat qaytarib yuborilgan yoki yopilgan.")
         return
 
     days = int(data.get("wait_days", 3))

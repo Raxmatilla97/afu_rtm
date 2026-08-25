@@ -31,6 +31,7 @@ from app.schemas.request import (
     RequestMessageCreate,
     RequestMessageResponse,
     RequestResponse,
+    RequestReturn,
     RequestStatusUpdate,
 )
 
@@ -141,6 +142,11 @@ async def list_requests(
 
     if status_filter:
         stmt = stmt.where(Request.status == status_filter)
+    else:
+        # A returned request is not work, it is a rejection: leaving it in the default list
+        # would put something nobody is going to do at the top of the queue every morning.
+        # Asking for it by name (status_filter=returned) is the way to see them.
+        stmt = stmt.where(Request.status != RequestStatus.RETURNED.value)
     if category_slug:
         stmt = stmt.where(Request.category_slug == category_slug)
     if assignee_employee_id is not None:
@@ -258,6 +264,14 @@ async def update_status(
 
     if payload.status not in {s.value for s in RequestStatus}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
+    # Returning has its own endpoint because it is more than a status: it records the
+    # reason and tells the reporter. Reached through here it would do neither, and leave a
+    # request sitting in "returned" that nobody was ever told about.
+    if payload.status == RequestStatus.RETURNED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Murojaatni qaytarish uchun «Qaytarib yuborish» amalidan foydalaning",
+        )
 
     old_status = request.status
     request.status = payload.status
@@ -311,6 +325,84 @@ async def complete_request(
         "refresh_request_cards",
         request.id,
         f"✅ <b>{request.display_number}</b> bajarildi.",
+    )
+
+    await session.refresh(request)
+    return RequestResponse.from_request(request)
+
+
+@router.post("/{request_id}/return", response_model=RequestResponse)
+async def return_request(
+    request_id: int,
+    payload: RequestReturn,
+    caller: User | Employee = Depends(get_current_caller),
+    session: AsyncSession = Depends(get_db),
+) -> RequestResponse:
+    """Send a wrongly filed request back to whoever reported it.
+
+    Not the same act as cancelling. Cancelling closes work RTM took on; returning says the
+    request never should have been in the queue — wrong department, too little to act on, a
+    duplicate — so it leaves the working list entirely and the reporter is told why.
+
+    Assignees are deliberately left on the row. Somebody may well have picked this up in the
+    group before anyone read it properly, and erasing that would hide who was holding it
+    when it went back; the staff screens key off the status, so it drops out of their queue
+    regardless.
+    """
+    if isinstance(caller, Employee) and not caller.can_manage_assignments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Faqat Boshliq yoki Admin murojaatni qaytara oladi",
+        )
+
+    request = await _get_request_or_404(session, request_id)
+
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Qaytarish sababini yozing — murojaatchi shu matnni oladi",
+        )
+    if request.status == RequestStatus.RETURNED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Bu murojaat allaqachon qaytarilgan"
+        )
+    if request.status == RequestStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bajarilgan murojaatni qaytarib bo'lmaydi",
+        )
+
+    old_status = request.status
+    request.status = RequestStatus.RETURNED.value
+    request.returned_at = datetime.now(timezone.utc)
+    request.return_reason = reason
+    # It is not parked on a part any more, and it is not late any more either.
+    request.waiting_until = None
+    request.waiting_reason = None
+    request.overdue_notified_at = None
+
+    session.add(
+        RequestStatusHistory(
+            request_id=request.id,
+            from_status=old_status,
+            to_status=request.status,
+            changed_by_employee_id=caller.id if isinstance(caller, Employee) else None,
+            changed_by_user_id=caller.id if isinstance(caller, User) else None,
+            note=reason,
+        )
+    )
+    await session.flush()
+    # Commit before queueing: the worker re-reads the request in its own session and would
+    # otherwise redraw the card and write the notification from the pre-return state.
+    await session.commit()
+
+    pool = await get_arq_pool()
+    await pool.enqueue_job("notify_request_returned", request.id)
+    await pool.enqueue_job(
+        "refresh_request_cards",
+        request.id,
+        f"🚫 <b>{request.display_number}</b> qaytarib yuborildi. Sabab: {reason}",
     )
 
     await session.refresh(request)

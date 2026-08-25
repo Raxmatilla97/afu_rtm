@@ -65,6 +65,14 @@ class Request(TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completion_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    #: Why a Boshliq or Admin sent this back, and when. Stored on the request rather than
+    #: left in the status history because it is the first thing every side has to read —
+    #: the reporter's notification, the reporter's screen in the bot, the group card and
+    #: the web page all show it, and none of them should have to dig through history for
+    #: the one sentence that explains the state they are looking at.
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    return_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     #: When the "this is late" warning went out. The overdue sweep runs on a schedule, so
     #: without a record of having warned it would re-warn the same request every half hour
     #: until somebody closed it — and a warning that repeats is one people learn to ignore.

@@ -19,6 +19,40 @@ function dt(value: string | null): string {
   return value ? new Date(value).toLocaleString("uz-UZ") : "—";
 }
 
+/**
+ * The four reasons a request actually comes back, as finished wordings.
+ *
+ * Presets rather than a dropdown of codes: whatever is picked here is sent to the reporter
+ * verbatim over Telegram, so it has to read as a sentence written to a person. Each one is
+ * a starting point — the text stays editable, and the label is only what the button says.
+ */
+const RETURN_PRESETS: { label: string; text: string }[] = [
+  {
+    label: "Noto'g'ri manzil",
+    text:
+      "Murojaat noto'g'ri manzilga yuborilgan — bu masala RTM vakolatiga kirmaydi. " +
+      "Iltimos, tegishli bo'limga murojaat qiling.",
+  },
+  {
+    label: "Ma'lumot yetarli emas",
+    text:
+      "Murojaatda ma'lumot yetarli emas. Iltimos, muammo qaysi bino va xonada, qaysi " +
+      "qurilmada ekanini yozing, xatolik matni yoki surati bo'lsa qo'shib, qaytadan yuboring.",
+  },
+  {
+    label: "Takroriy murojaat",
+    text:
+      "Bu muammo bo'yicha allaqachon murojaat mavjud. Takroriy murojaat yopildi — " +
+      "javobni oldingi murojaatingizda kuzatib boring.",
+  },
+  {
+    label: "Muammo hal bo'lgan",
+    text:
+      "Muammo hal qilingan yoki o'z-o'zidan bartaraf bo'lgan, qo'shimcha ish talab " +
+      "qilinmaydi. Agar takrorlansa, yangi murojaat yuboring.",
+  },
+];
+
 export function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
@@ -31,6 +65,7 @@ export function RequestDetailPage() {
   const [deadline, setDeadline] = useState("");
   const [completionNote, setCompletionNote] = useState("");
   const [ratingScore, setRatingScore] = useState(0);
+  const [returning, setReturning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Separate from `error`, which reports a failed action on a request that did load.
@@ -137,6 +172,14 @@ export function RequestDetailPage() {
     });
   }
 
+  async function handleReturn(reason: string) {
+    await run(async () => {
+      await requestsApi.returnToRequester(requestId, reason);
+      setReturning(false);
+      await load();
+    });
+  }
+
   async function handleRate(score: number) {
     await run(async () => {
       await requestsApi.rate(requestId, score);
@@ -165,6 +208,11 @@ export function RequestDetailPage() {
   // gallery is for what came with the request itself, so it does not repeat them.
   const requestFiles = attachments.filter((a) => a.message_id === null);
 
+  const isReturned = request.status === "returned";
+  // Returning a finished job would tell the reporter their solved problem was rejected,
+  // and returning an already-returned one would send the notification twice.
+  const canReturn = canManage && !isReturned && request.status !== "completed";
+
   return (
     // Full width, like the list this page opens from. The layout below is already two
     // columns with a capped chat rail, so the extra room goes to the description, the
@@ -177,8 +225,27 @@ export function RequestDetailPage() {
             {request.category_label} · {request.source === "bot" ? "Telegram" : "Veb"}
           </div>
         </div>
-        <StatusBadge status={request.status} />
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusBadge status={request.status} />
+          {canReturn && (
+            <button
+              onClick={() => setReturning(true)}
+              disabled={busy}
+              className="min-h-11 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              🚫 Qaytarib yuborish
+            </button>
+          )}
+        </div>
       </div>
+
+      {isReturned && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="font-semibold">🚫 Bu murojaat qaytarib yuborilgan</div>
+          <p className="mt-1 whitespace-pre-wrap">{request.return_reason || "—"}</p>
+          <div className="mt-1 text-xs text-red-500">{dt(request.returned_at)}</div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -239,7 +306,7 @@ export function RequestDetailPage() {
             </div>
           )}
 
-          {canManage && (
+          {canManage && !isReturned && (
             <form onSubmit={handleAssign} className="rounded-xl border border-slate-200 bg-white p-5">
               <div className="mb-1 font-medium text-slate-800">RTM xodimlariga tayinlash</div>
               <p className="mb-3 text-xs text-slate-400">
@@ -290,7 +357,7 @@ export function RequestDetailPage() {
             </form>
           )}
 
-          {isStaffAssignee && request.status !== "completed" && request.status !== "cancelled" && (
+          {isStaffAssignee && !isReturned && request.status !== "completed" && request.status !== "cancelled" && (
             <div className="rounded-xl border border-slate-200 bg-white p-5">
               <div className="mb-3 font-medium text-slate-800">Harakatlar</div>
               {request.status === "assigned" && (
@@ -358,6 +425,134 @@ export function RequestDetailPage() {
             onSent={load}
           />
         </div>
+      </div>
+
+      {returning && canReturn && (
+        <ReturnModal
+          displayNumber={request.display_number}
+          busy={busy}
+          error={error}
+          onClose={() => setReturning(false)}
+          onSubmit={handleReturn}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Why a request is being sent back, written to the person who filed it.
+ *
+ * Deliberately a dialog with a text box rather than a confirm(): this text is delivered to
+ * the reporter's Telegram word for word and is the only thing they will be told, so it has
+ * to be written on purpose. A preset fills the box and leaves it editable — the common case
+ * is one of the four with a detail added.
+ *
+ * `error` is rendered in here rather than only on the page behind: a refusal shown under a
+ * modal is a refusal nobody reads, and the dialog stays open on failure so the wording that
+ * was just typed is not lost.
+ */
+function ReturnModal({
+  displayNumber,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  displayNumber: string;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 sm:items-center">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-slate-800">Murojaatni qaytarib yuborish</h2>
+            <p className="truncate text-xs text-slate-500">
+              {displayNumber} — murojaatchiga sabab bilan qaytariladi
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            ✖
+          </button>
+        </header>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!reason.trim()) return;
+            onSubmit(reason.trim());
+          }}
+          className="flex-1 overflow-y-auto p-5"
+        >
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mb-2 text-xs font-medium text-slate-600">Tayyor javoblar</div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {RETURN_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => setReason(preset.text)}
+                className="min-h-9 rounded-full border border-slate-300 px-3 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Sabab (murojaatchiga shu matn boradi)
+            </span>
+            <textarea
+              required
+              rows={5}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Nega qaytarilmoqda? Murojaatchi nima qilishi kerak?"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Qaytarilgan murojaat ro'yxatdan chiqadi va uni faqat «Qaytarib yuborilgan»
+            filtri orqali ko'rish mumkin. Murojaatchiga va uni olgan xodimga Telegram orqali
+            xabar yuboriladi.
+          </p>
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !reason.trim()}
+              className="min-h-11 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? "Yuborilmoqda..." : "🚫 Qaytarib yuborish"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

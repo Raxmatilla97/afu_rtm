@@ -31,6 +31,7 @@ _HEADLINES = {
     RequestStatus.WAITING.value: "⏸ <b>QISM KUTILMOQDA</b>",
     RequestStatus.COMPLETED.value: "✅ <b>BAJARILDI</b>",
     RequestStatus.CANCELLED.value: "❌ <b>BEKOR QILINDI</b>",
+    RequestStatus.RETURNED.value: "🚫 <b>QAYTARIB YUBORILDI</b>",
 }
 
 #: Overrides the status headline once the deadline has passed. Telegram has no colours, so
@@ -123,6 +124,8 @@ def build_card_text(
             lines.append(f"{badge} {name}{lead}")
     elif request.status == RequestStatus.CANCELLED.value:
         lines.append("❌ Bu murojaat bekor qilingan.")
+    elif request.status == RequestStatus.RETURNED.value:
+        lines.append("🚫 Bu murojaat qaytarib yuborilgan.")
     else:
         waiting = _age(request.created_at)
         lines.append("⏳ <b>Hali hech kim olmadi</b>")
@@ -136,6 +139,13 @@ def build_card_text(
             lines.append(f"🚨 <b>{late} kechikdi!</b>")
     elif request.deadline_at and request.status != RequestStatus.COMPLETED.value:
         lines.append(f"\n⏰ Muddat: {_fmt_dt(request.deadline_at)}")
+
+    if request.status == RequestStatus.RETURNED.value:
+        # On the card whether or not anybody had taken the job: the group is where the next
+        # person would otherwise pick up a request RTM has already sent back.
+        lines.append("")
+        lines.append(f"🚫 <b>Qaytarilgan sabab:</b> {request.return_reason or '—'}")
+        lines.append(f"<i>{_fmt_dt(request.returned_at)}</i>")
 
     if request.status == RequestStatus.COMPLETED.value:
         spent = format_duration(request.assigned_at or request.created_at, request.completed_at)

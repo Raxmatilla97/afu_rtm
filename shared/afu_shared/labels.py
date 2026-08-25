@@ -14,6 +14,7 @@ REQUEST_STATUS_LABELS: dict[str, str] = {
     RequestStatus.WAITING.value: "⏸ Inventar kutilmoqda",
     RequestStatus.COMPLETED.value: "✅ Bajarilgan",
     RequestStatus.CANCELLED.value: "❌ Bekor qilingan",
+    RequestStatus.RETURNED.value: "🚫 Qaytarib yuborilgan",
 }
 
 

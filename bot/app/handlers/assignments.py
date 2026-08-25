@@ -9,7 +9,7 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.assignments import assignee_ids, is_assigned
+from afu_shared.assignments import OPEN_FOR_PICKUP, assignee_ids, is_assigned
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.models import Employee, Request, RequestStatusHistory
@@ -27,8 +27,29 @@ from app.utils.transient import send_transient, track_media
 router = Router(name="assignments")
 
 
+def closed_notice(request: Request) -> str:
+    """Why the buttons stopped working, said in the alert itself.
+
+    The returned case is the one that has to carry its reason: the screen a staffer is
+    looking at was drawn before the supervisor sent the request back, and nothing else on
+    it explains why the work they were half-way through no longer exists.
+    """
+    if request.status == RequestStatus.RETURNED.value:
+        reason = (request.return_reason or "").strip()
+        text = "🚫 Bu murojaat qaytarib yuborilgan."
+        # Telegram truncates an alert at ~200 characters, so the reason is trimmed rather
+        # than allowed to push the sentence that explains it off the screen.
+        return f"{text} Sabab: {reason[:150]}" if reason else text
+    return "Bu murojaat yopilgan."
+
+
 async def _guard(
-    callback: CallbackQuery, session: AsyncSession, employee: Employee, rid: int
+    callback: CallbackQuery,
+    session: AsyncSession,
+    employee: Employee,
+    rid: int,
+    *,
+    must_be_open: bool = False,
 ) -> Request | None:
     if not employee.is_rtm_staff:
         await callback.answer("Bu bo'lim faqat RTM xodimlari uchun.", show_alert=True)
@@ -38,6 +59,12 @@ async def _guard(
     # rights on it as whoever picked it up first.
     if request is None or not await is_assigned(session, rid, employee.id):
         await callback.answer("Topshiriq topilmadi.", show_alert=True)
+        return None
+    # Reading a closed request is fine — its thread and files are still the record. Acting
+    # on one is not, and an old screen still holding live buttons is exactly how a returned
+    # request gets marked "done" half an hour after it was sent back.
+    if must_be_open and request.status not in OPEN_FOR_PICKUP:
+        await callback.answer(closed_notice(request), show_alert=True)
         return None
     return request
 
@@ -100,7 +127,7 @@ async def start_work(
     if callback.message is None:
         return
 
-    request = await _guard(callback, session, employee, callback_data.rid)
+    request = await _guard(callback, session, employee, callback_data.rid, must_be_open=True)
     if request is None:
         return
 
@@ -143,7 +170,7 @@ async def ask_completion_note(
     if callback.message is None:
         return
 
-    request = await _guard(callback, session, employee, callback_data.rid)
+    request = await _guard(callback, session, employee, callback_data.rid, must_be_open=True)
     if request is None:
         return
 
@@ -226,6 +253,12 @@ async def finish_completion(
     if request is None or not await is_assigned(session, request.id, employee.id):
         await state.clear()
         await callback.answer("Topshiriq topilmadi.", show_alert=True)
+        return
+    # Checked again here, not only where the report was asked for: writing the report takes
+    # minutes, and a supervisor can return the request while the staffer is still typing.
+    if request.status not in OPEN_FOR_PICKUP:
+        await state.clear()
+        await callback.answer(closed_notice(request), show_alert=True)
         return
 
     used = await apply_picks(session, state, request, employee)

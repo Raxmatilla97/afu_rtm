@@ -115,6 +115,14 @@ async def build_detail(
         if request.completion_note:
             lines.append(f"Izoh: {request.completion_note}")
 
+    if request.status == RequestStatus.RETURNED.value:
+        # The reporter is the person this state exists for: they are the only one who can
+        # do anything about it, and what they need is the sentence explaining what to fix.
+        lines.append("")
+        lines.append(f"🚫 <b>Qaytarib yuborilgan:</b> {_fmt_dt(request.returned_at)}")
+        lines.append(f"Sabab: {request.return_reason or '—'}")
+        lines.append("Kerak bo'lsa, izohni hisobga olib yangi murojaat yuboring.")
+
     files = await attachments_for_request(session, rid, include_internal=False)
     if files:
         lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(files)}")

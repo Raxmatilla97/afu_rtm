@@ -106,6 +106,9 @@ export interface RequestItem {
   deadline_at: string | null;
   completed_at: string | null;
   completion_note: string | null;
+  /** Set when a Boshliq or Admin sent the request back as wrongly filed. */
+  returned_at: string | null;
+  return_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -164,6 +167,7 @@ export const STATUS_LABELS: Record<string, string> = {
   waiting: "Inventar kutilmoqda",
   completed: "Bajarilgan",
   cancelled: "Bekor qilingan",
+  returned: "Qaytarib yuborilgan",
 };
 
 export interface MonthlyPoint {

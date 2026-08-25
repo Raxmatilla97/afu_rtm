@@ -5,7 +5,7 @@ interface Props {
   status: string;
 }
 
-const CLOSED = new Set(["completed", "cancelled"]);
+const CLOSED = new Set(["completed", "cancelled", "returned"]);
 /** Below this the banner turns amber: a deadline inside one working day is a plan, not a note. */
 const URGENT_MS = 24 * 60 * 60 * 1000;
 

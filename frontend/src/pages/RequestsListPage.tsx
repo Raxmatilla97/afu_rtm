@@ -9,14 +9,18 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { useAuth } from "@/context/AuthContext";
 import { STATUS_LABELS, type Category, type Employee, type RequestItem } from "@/types";
 
+// "Barcha holatlar" means every status except returned: the server leaves returned
+// requests out of an unfiltered list, because a rejected request is not work waiting to be
+// done. Picking the last option here is the only way to see them, which is the point.
 const STATUS_FILTERS = [
-  ["", "Barcha holatlar"],
+  ["", "Barcha holatlar (qaytarilganlarsiz)"],
   ["new", STATUS_LABELS.new],
   ["assigned", STATUS_LABELS.assigned],
   ["in_progress", STATUS_LABELS.in_progress],
   ["waiting", STATUS_LABELS.waiting],
   ["completed", STATUS_LABELS.completed],
   ["cancelled", STATUS_LABELS.cancelled],
+  ["returned", "🚫 " + STATUS_LABELS.returned],
 ] as const;
 
 function shortDate(iso: string): string {
@@ -203,9 +207,11 @@ export function RequestsListPage() {
           columns={columns}
           rowKey={(r) => r.id}
           empty={
-            filtersActive
-              ? "Bu filtrlarga mos murojaat topilmadi"
-              : "Murojaatlar topilmadi"
+            statusFilter === "returned"
+              ? "Qaytarib yuborilgan murojaat yo'q"
+              : filtersActive
+                ? "Bu filtrlarga mos murojaat topilmadi"
+                : "Murojaatlar topilmadi"
           }
         />
       )}

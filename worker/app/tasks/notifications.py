@@ -443,3 +443,64 @@ async def notify_request_waiting(ctx: dict, request_id: int, employee_id: int | 
         )
 
     await _deliver(chat_id, text, [], request_id=request_id, reply_markup=keyboard)
+
+
+async def notify_request_returned(ctx: dict, request_id: int) -> None:
+    """Tell the reporter their request was sent back, and stop anybody working on it.
+
+    Two audiences in one job, because both have to hear it at the same moment. The reporter
+    needs the reason — a request that simply vanishes from the queue teaches people to
+    phone RTM instead of using the system. Whoever picked it up in the group needs it too:
+    a card can be taken minutes after it is posted, long before a supervisor reads it
+    properly, and without this they would walk to an office over a request that no longer
+    exists.
+    """
+    async with session_scope() as session:
+        request = await session.get(Request, request_id)
+        if request is None:
+            logger.error("notify_request_returned: request %s not found", request_id)
+            return
+
+        reason = request.return_reason or "—"
+        requester = await session.get(Employee, request.requester_employee_id)
+        requester_chat = requester.telegram_user_id if requester else None
+
+        staff_chats = [
+            row.employee.telegram_user_id
+            for row in await assignees_of(session, request_id)
+            if row.employee and row.employee.telegram_user_id
+        ]
+
+        requester_text = (
+            "🚫 <b>Murojaatingiz qaytarib yuborildi</b>\n"
+            "━━━━━━━━━━━━━━\n\n"
+            f"🎫 <b>{request.display_number}</b>\n\n"
+            f"📝 {request.description}\n\n"
+            f"<b>Sabab:</b> {reason}\n\n"
+            "Bu murojaat bo'yicha ish olib borilmaydi. Yuqoridagi izohni hisobga olib "
+            "yangi murojaat yuborishingiz mumkin — savolingiz bo'lsa, shu xabarga javob "
+            "yozing." + REPLY_HINT
+        )
+        requester_keyboard = _keyboard_for(
+            ("💬 Javob berish", ReqCB(act="reply", rid=request_id).pack()),
+            ("📋 Murojaatni ochish", ReqCB(act="open", rid=request_id).pack()),
+        )
+
+        staff_text = (
+            "🚫 <b>Topshiriq qaytarib yuborildi</b>\n\n"
+            f"<b>{request.display_number}</b> — bu murojaat Boshliq yoki Admin tomonidan "
+            "qaytarib yuborildi, ish talab qilinmaydi.\n\n"
+            f"<b>Sabab:</b> {reason}"
+        )
+
+    if requester_chat:
+        await _deliver(
+            requester_chat,
+            requester_text,
+            [],
+            request_id=request_id,
+            reply_markup=requester_keyboard,
+        )
+
+    for chat_id in staff_chats:
+        await _deliver(chat_id, staff_text, [], request_id=request_id)

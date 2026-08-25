@@ -38,6 +38,17 @@ class RequestComplete(BaseModel):
     completion_note: str
 
 
+class RequestReturn(BaseModel):
+    """Why a request is being sent back.
+
+    Free text rather than a code, with the four common cases offered as ready-made wordings
+    in the interface. What the reporter needs is a sentence they can act on — "wrong
+    department" as an enum value would arrive as a shrug.
+    """
+
+    reason: str
+
+
 class RequestMessageCreate(BaseModel):
     #: May be empty — a voice clip or a screenshot is a complete message on its own.
     body: str = ""
@@ -175,6 +186,8 @@ class RequestResponse(BaseModel):
     deadline_at: datetime | None
     completed_at: datetime | None
     completion_note: str | None
+    returned_at: datetime | None = None
+    return_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -207,6 +220,8 @@ class RequestResponse(BaseModel):
             deadline_at=r.deadline_at,
             completed_at=r.completed_at,
             completion_note=r.completion_note,
+            returned_at=r.returned_at,
+            return_reason=r.return_reason,
             created_at=r.created_at,
             updated_at=r.updated_at,
         )
