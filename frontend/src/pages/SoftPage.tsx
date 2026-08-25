@@ -141,7 +141,9 @@ export function SoftPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl">
+    // Same container as RTM Inventar — the two pages sit next to each other in the menu
+    // and a width that jumps between them reads as a broken layout.
+    <div className="mx-auto max-w-7xl">
       <PageHeader
         title="RTM Soft"
         subtitle="Bu yerga yuklangan fayllar botdagi «💿 Soft va drayverlar» tugmasida chiqadi"

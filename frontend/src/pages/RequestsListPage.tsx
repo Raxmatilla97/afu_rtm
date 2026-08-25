@@ -70,10 +70,27 @@ export function RequestsListPage() {
       header: "Yaratilgan",
       cell: (r) => <span className="text-slate-500">{shortDate(r.created_at)}</span>,
     },
+    {
+      key: "actions",
+      header: "Amallar",
+      cell: (r) => (
+        <div className="flex justify-end md:justify-start">
+          <Link
+            to={`/requests/${r.id}`}
+            className="inline-flex min-h-9 items-center rounded-full border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            👁 Ko'rish
+          </Link>
+        </div>
+      ),
+    },
   ];
 
   return (
-    <div className="mx-auto max-w-6xl">
+    // Full width on purpose: this table now carries seven columns, and a narrow container
+    // only moves the horizontal scrollbar inside the card on screens wide enough to show
+    // the whole row.
+    <div>
       <PageHeader
         title="Murojaatlar"
         subtitle="Sizga ko'rinadigan barcha murojaatlar"

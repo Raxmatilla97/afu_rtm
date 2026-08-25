@@ -65,7 +65,9 @@ export function EmployeesPage() {
       mobile: "title",
       cell: (e) => (
         <div className="flex items-center gap-3">
-          <EmployeeAvatar name={e.full_name} imagePath={e.image_local_path} size="sm" />
+          {/* md rather than sm: the photo is here to be recognised across a desk, not to
+              decorate the row. */}
+          <EmployeeAvatar name={e.full_name} imagePath={e.image_local_path} size="md" />
           <div className="min-w-0">
             <div className="truncate font-medium">{e.full_name}</div>
             <div className="truncate text-xs font-normal text-slate-400">
@@ -137,7 +139,8 @@ export function EmployeesPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl">
+    // Full width: four role toggles plus a photo need every pixel the screen has.
+    <div>
       <PageHeader
         title="Xodimlar"
         subtitle="Rollar va kirish huquqlari"

@@ -13,7 +13,8 @@ export function LeaderboardPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    // Full width: the ranking is the page, so it gets the whole page.
+    <div>
       <PageHeader
         title="Top RTM xodimlari"
         subtitle="Reyting va bajarilgan murojaatlar soni bo'yicha"
