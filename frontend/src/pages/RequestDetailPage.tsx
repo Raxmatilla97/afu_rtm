@@ -166,7 +166,10 @@ export function RequestDetailPage() {
   const requestFiles = attachments.filter((a) => a.message_id === null);
 
   return (
-    <div className="mx-auto max-w-7xl">
+    // Full width, like the list this page opens from. The layout below is already two
+    // columns with a capped chat rail, so the extra room goes to the description, the
+    // attachment grid and the assign form rather than to empty margins.
+    <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{request.display_number}</h1>
