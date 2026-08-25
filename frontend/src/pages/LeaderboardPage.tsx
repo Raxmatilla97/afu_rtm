@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ratingsApi } from "@/api/reference";
+import { PageHeader } from "@/components/PageHeader";
 import type { StaffRatingSummary } from "@/types";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -12,15 +13,17 @@ export function LeaderboardPage() {
   }, []);
 
   return (
-    <div>
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Top RTM xodimlari</h1>
-      <p className="mb-6 text-sm text-slate-500">Reyting va bajarilgan murojaatlar soni bo'yicha</p>
+    <div className="mx-auto max-w-3xl">
+      <PageHeader
+        title="Top RTM xodimlari"
+        subtitle="Reyting va bajarilgan murojaatlar soni bo'yicha"
+      />
 
       <div className="space-y-3">
         {items.map((s, idx) => (
           <div
             key={s.employee_id}
-            className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4"
           >
             <div className="flex items-center gap-4">
               <div className="w-8 text-center text-xl">{MEDALS[idx] || idx + 1}</div>

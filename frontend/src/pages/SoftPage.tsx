@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { describeError } from "@/api/errors";
 import { softApi } from "@/api/soft";
+import { ErrorBanner, PageHeader } from "@/components/PageHeader";
+import { ResponsiveTable, type Column } from "@/components/ResponsiveTable";
 import { useAuth } from "@/context/AuthContext";
 import type { SoftAsset, SoftCategory } from "@/types";
 
@@ -20,6 +22,7 @@ export function SoftPage() {
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   const [form, setForm] = useState({
     category_slug: "",
@@ -60,23 +63,106 @@ export function SoftPage() {
     }
   }
 
+  const columns: Column<SoftAsset>[] = [
+    {
+      key: "title",
+      header: "Nomi",
+      mobile: "title",
+      cell: (a) => (
+        <span>
+          {a.title}
+          {a.version && (
+            <span className="ml-1 text-xs font-normal text-slate-400">{a.version}</span>
+          )}
+          {a.is_cached && (
+            <span
+              title="Telegram keshida — bot uni bir zumda yuboradi"
+              className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700"
+            >
+              ⚡ kesh
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "meta",
+      header: "Kategoriya",
+      mobile: "meta",
+      cell: (a) => (
+        <>
+          {a.category_label}
+          {a.description ? ` — ${a.description}` : ""}
+        </>
+      ),
+    },
+    { key: "size", header: "Hajmi", align: "right", cell: (a) => humanSize(a.file_size) },
+    {
+      key: "downloads",
+      header: "Yuklab olishlar",
+      align: "right",
+      cell: (a) => <span className="tabular-nums">{a.download_count}</span>,
+    },
+    {
+      key: "actions",
+      header: "Amallar",
+      cell: (a) => (
+        <div className="flex flex-wrap justify-end gap-1.5 md:justify-start">
+          <a
+            href={a.download_url}
+            className="inline-flex min-h-9 items-center rounded-full border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            ⬇️ Yuklab olish
+          </a>
+          {canWrite && a.is_active && (
+            <button
+              onClick={() =>
+                window.confirm(`"${a.title}" ro'yxatdan yashirilsinmi?`) &&
+                void run(() => softApi.deactivate(a.id))
+              }
+              disabled={busy}
+              className="min-h-9 rounded-full border border-red-300 px-3 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              🗑 Yashirish
+            </button>
+          )}
+          {canWrite && !a.is_active && (
+            <button
+              onClick={() => void run(() => softApi.update(a.id, { is_active: true }))}
+              disabled={busy}
+              className="min-h-9 rounded-full border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            >
+              ↩️ Qaytarish
+            </button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">RTM Soft</h1>
-        <p className="text-sm text-slate-500">
-          Drayverlar va dasturlar. Bu yerga yuklangan fayllar botdagi
-          «💿 Soft va drayverlar» tugmasida chiqadi.
-        </p>
-      </div>
+      <PageHeader
+        title="RTM Soft"
+        subtitle="Bu yerga yuklangan fayllar botdagi «💿 Soft va drayverlar» tugmasida chiqadi"
+        action={
+          canWrite && (
+            <button
+              onClick={() => {
+                setShowForm((v) => !v);
+                setForm((f) => ({ ...f, category_slug: f.category_slug || categories[0]?.slug || "" }));
+              }}
+              className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              {showForm ? "✖️ Yopish" : "⬆️ Fayl yuklash"}
+            </button>
+          )
+        }
+      />
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner message={error} />}
 
-      {canWrite && (
+      {showForm && canWrite && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -91,17 +177,17 @@ export function SoftPage() {
               });
               setForm({ category_slug: form.category_slug, title: "", version: "", description: "" });
               setFile(null);
+              setShowForm(false);
             });
           }}
-          className="mb-6 grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-4"
+          className="mb-6 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4"
         >
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Kategoriya</span>
+          <Field label="Kategoriya">
             <select
               required
               value={form.category_slug}
               onChange={(e) => setForm({ ...form, category_slug: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             >
               <option value="">Tanlang</option>
               {categories.map((c) => (
@@ -110,52 +196,44 @@ export function SoftPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Nomi</span>
+          </Field>
+          <Field label="Nomi">
             <input
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               placeholder="HP LaserJet 1102 drayver"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Versiya / OS
-            </span>
+          </Field>
+          <Field label="Versiya / OS">
             <input
               value={form.version}
               onChange={(e) => setForm({ ...form, version: e.target.value })}
               placeholder="Win 10/11 x64"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Fayl</span>
+          </Field>
+          <Field label="Fayl">
             <input
               type="file"
               required
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-600 file:mr-2 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-2 file:py-1.5 file:text-sm"
+              className="block w-full text-sm text-slate-600 file:mr-2 file:min-h-9 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:text-sm"
             />
-          </label>
-          <label className="block sm:col-span-2 lg:col-span-3">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Izoh (ixtiyoriy)
-            </span>
+          </Field>
+          <Field label="Izoh (ixtiyoriy)" className="sm:col-span-2 lg:col-span-3">
             <input
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
-          </label>
+          </Field>
           <div className="flex items-end">
             <button
               type="submit"
               disabled={busy}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              className="min-h-11 w-full rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
             >
               {busy ? "Yuklanmoqda..." : "⬆️ Yuklash"}
             </button>
@@ -171,7 +249,7 @@ export function SoftPage() {
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto"
         >
           <option value="">Barcha kategoriyalar</option>
           {categories.map((c) => (
@@ -182,96 +260,30 @@ export function SoftPage() {
         </select>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Nomi</th>
-              <th className="px-4 py-3">Kategoriya</th>
-              <th className="px-4 py-3 text-right">Hajmi</th>
-              <th className="px-4 py-3 text-right">Yuklab olishlar</th>
-              <th className="px-4 py-3">Amallar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assets.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  Hozircha fayl yo'q
-                </td>
-              </tr>
-            )}
-            {assets.map((asset) => (
-              <tr
-                key={asset.id}
-                className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 ${
-                  asset.is_active ? "" : "opacity-50"
-                }`}
-              >
-                <td className="px-4 py-3">
-                  <div className="font-medium">
-                    {asset.title}
-                    {asset.version && (
-                      <span className="ml-1 text-xs font-normal text-slate-400">
-                        {asset.version}
-                      </span>
-                    )}
-                    {asset.is_cached && (
-                      <span
-                        title="Telegram keshida — bot uni bir zumda yuboradi"
-                        className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700"
-                      >
-                        ⚡ kesh
-                      </span>
-                    )}
-                  </div>
-                  {asset.description && (
-                    <div className="text-xs text-slate-400">{asset.description}</div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-slate-500">{asset.category_label}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-slate-600">
-                  {humanSize(asset.file_size)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-slate-600">
-                  {asset.download_count}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    <a
-                      href={asset.download_url}
-                      className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100"
-                    >
-                      ⬇️ Yuklab olish
-                    </a>
-                    {canWrite && asset.is_active && (
-                      <button
-                        onClick={() =>
-                          window.confirm(`"${asset.title}" ro'yxatdan yashirilsinmi?`) &&
-                          void run(() => softApi.deactivate(asset.id))
-                        }
-                        disabled={busy}
-                        className="rounded-full border border-red-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        🗑 Yashirish
-                      </button>
-                    )}
-                    {canWrite && !asset.is_active && (
-                      <button
-                        onClick={() => void run(() => softApi.update(asset.id, { is_active: true }))}
-                        disabled={busy}
-                        className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                      >
-                        ↩️ Qaytarish
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ResponsiveTable
+        rows={assets}
+        columns={columns}
+        rowKey={(a) => a.id}
+        empty="Hozircha fayl yo'q"
+        rowClass={(a) => (a.is_active ? "" : "opacity-50")}
+      />
     </div>
+  );
+}
+
+function Field({
+  label,
+  className = "",
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      {children}
+    </label>
   );
 }

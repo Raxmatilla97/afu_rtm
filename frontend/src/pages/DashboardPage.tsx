@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { statsApi } from "@/api/reference";
 import { requestsApi } from "@/api/requests";
 import { OverdueAlert } from "@/components/OverdueAlert";
+import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import type { RequestItem, StatsSummary } from "@/types";
 
@@ -43,8 +44,10 @@ export function DashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Xush kelibsiz, {name}</h1>
-      <p className="mb-6 text-sm text-slate-500">RTM murojaatlar tizimi bosh sahifasi</p>
+      <PageHeader
+        title={`Xush kelibsiz, ${name}`}
+        subtitle="RTM murojaatlar tizimi bosh sahifasi"
+      />
 
       <OverdueAlert requests={myWork} />
 
@@ -57,12 +60,12 @@ export function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-8 flex gap-3">
-        <Link to="/requests" className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+      <div className="mt-8 flex flex-wrap gap-3">
+        <Link to="/requests" className="inline-flex min-h-11 items-center rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700">
           Murojaatlarni ko'rish
         </Link>
         {session.kind === "employee" && (
-          <Link to="/requests/new" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <Link to="/requests/new" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Yangi murojaat
           </Link>
         )}

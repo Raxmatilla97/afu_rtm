@@ -5,3 +5,24 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+/*
+ * iOS Safari zooms the whole page in when a focused input's text is smaller than 16px, and
+ * it does not zoom back out afterwards — the user is left on a page scrolled sideways with
+ * no obvious way back. The interface is designed at 14px, so the rule applies only where
+ * the problem exists: touch pointers, below the tablet breakpoint.
+ */
+@media (max-width: 767px) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* A phone keyboard changing the viewport height must not make a fixed panel jump. */
+@supports (height: 100dvh) {
+  .h-screen {
+    height: 100dvh;
+  }
+}

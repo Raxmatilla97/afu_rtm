@@ -18,7 +18,37 @@ logger = logging.getLogger(__name__)
 
 def _image_extension(url: str) -> str:
     suffix = Path(url.split("?")[0]).suffix
-    return suffix if suffix else ".jpg"
+    # A query-string-only URL, or one ending in a path segment, has no usable suffix.
+    return suffix if suffix and len(suffix) <= 5 else ".jpg"
+
+
+#: HEMIS installs do not agree on what the photo field is called, and reading only one of
+#: them is indistinguishable from an employee having no photo — which is exactly how this
+#: went unnoticed. Tried in order; the first non-empty one wins.
+IMAGE_KEYS = ("image_full", "image", "picture", "photo", "avatar")
+
+
+def _image_url_of(item: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The employee's photo URL and which key it came from.
+
+    Relative paths are resolved against the HEMIS base URL: some installs return
+    ``/uploads/…`` rather than a full address, and httpx cannot fetch that on its own.
+    """
+    for key in IMAGE_KEYS:
+        raw = item.get(key)
+        if isinstance(raw, dict):
+            raw = raw.get("url") or raw.get("src")
+        if not raw or not isinstance(raw, str):
+            continue
+        url = raw.strip()
+        if not url:
+            continue
+        if url.startswith("//"):
+            url = f"https:{url}"
+        elif url.startswith("/"):
+            url = f"{settings.api_hemis_url.rstrip('/')}{url}"
+        return url, key
+    return None, None
 
 
 async def _sync_departments(session, dept_items: list[dict[str, Any]]) -> tuple[dict[int, int], int, int, set[int]]:
@@ -80,6 +110,10 @@ async def _sync_departments(session, dept_items: list[dict[str, Any]]) -> tuple[
     return hemis_id_to_local, created, updated, active_seen
 
 
+#: Which key this HEMIS install actually uses, logged once per run rather than per
+#: employee — the answer is the same for all of them and 3000 identical lines help nobody.
+_seen_image_keys: set[str] = set()
+
 IMAGE_DOWNLOAD_CONCURRENCY = 15
 IMAGE_DOWNLOAD_TIMEOUT = 15.0
 
@@ -94,10 +128,35 @@ async def _download_employee_image(
     async with semaphore:
         try:
             resp = await client.get(image_url)
-            resp.raise_for_status()
+        except Exception as exc:
+            # The status code and the exception type are the whole diagnosis. Collapsing
+            # every failure into one generic line is why a 401 from HEMIS looked identical
+            # to a DNS problem, and neither got fixed.
+            logger.warning(
+                "Image for %s: request to %s failed: %r", employee_id_number, image_url, exc
+            )
+            return employee_id_number, None
+
+        if resp.status_code != 200:
+            logger.warning(
+                "Image for %s: %s returned HTTP %s (%s bytes)",
+                employee_id_number, image_url, resp.status_code, len(resp.content),
+            )
+            return employee_id_number, None
+
+        content_type = resp.headers.get("content-type", "")
+        if not content_type.startswith("image/"):
+            # HEMIS answers an unauthenticated or missing image with an HTML login page,
+            # which is a perfectly successful 200 and a completely useless file.
+            logger.warning(
+                "Image for %s: %s returned %r, not an image", employee_id_number, image_url, content_type
+            )
+            return employee_id_number, None
+
+        try:
             dest_path.write_bytes(resp.content)
-        except Exception:
-            logger.warning("Failed to download image for %s from %s", employee_id_number, image_url)
+        except OSError as exc:
+            logger.error("Image for %s: cannot write %s: %r", employee_id_number, dest_path, exc)
             return employee_id_number, None
 
     return employee_id_number, f"employees/{dest_path.name}"
@@ -112,7 +171,15 @@ async def _download_pending_images(pending: dict[str, str]) -> dict[str, str]:
     limits = httpx.Limits(max_connections=IMAGE_DOWNLOAD_CONCURRENCY, max_keepalive_connections=IMAGE_DOWNLOAD_CONCURRENCY)
     results: dict[str, str] = {}
 
-    async with httpx.AsyncClient(timeout=IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True, limits=limits) as client:
+    # The same bearer token the API calls use. Employee photos live behind the same auth on
+    # some installs and are public on others; sending it costs nothing where it is not
+    # needed, and its absence is invisible where it is — the download just returns a login
+    # page with a 200 status.
+    headers = {"Authorization": f"Bearer {settings.api_hemis_token}"} if settings.api_hemis_token else {}
+
+    async with httpx.AsyncClient(
+        timeout=IMAGE_DOWNLOAD_TIMEOUT, follow_redirects=True, limits=limits, headers=headers
+    ) as client:
         tasks = [
             _download_employee_image(client, semaphore, employee_id_number, image_url)
             for employee_id_number, image_url in pending.items()
@@ -144,7 +211,10 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
 
         department_hemis_id = (item.get("department") or {}).get("id")
         local_department_id = dept_map.get(department_hemis_id) if department_hemis_id else None
-        image_url = item.get("image_full")
+        image_url, image_key = _image_url_of(item)
+        if image_key and image_key not in _seen_image_keys:
+            _seen_image_keys.add(image_key)
+            logger.info("HEMIS employee photos arrive under key %r", image_key)
 
         if row is None:
             row = Employee(
@@ -176,7 +246,12 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
             if row.access_revoked:
                 row.access_revoked = False
                 row.access_revoked_at = None
-            if image_url and image_url != row.image_source_url:
+            # Re-fetch when the URL changed, and also when we have a URL but no local copy:
+            # a run that recorded the source and then failed to download would otherwise
+            # never try again, and re-syncing would look like it did nothing.
+            if image_url and (
+                image_url != row.image_source_url or not row.image_local_path
+            ):
                 pending_images[employee_id_number] = image_url
         elif not row.access_revoked:
             row.access_revoked = True
@@ -186,6 +261,9 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
     await session.flush()
 
     downloaded = await _download_pending_images(pending_images)
+    logger.info(
+        'Employee photos: %s requested, %s downloaded', len(pending_images), len(downloaded)
+    )
     for employee_id_number, local_path in downloaded.items():
         row = existing[employee_id_number]
         row.image_source_url = pending_images[employee_id_number]

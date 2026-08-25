@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { describeError } from "@/api/errors";
 import { inventoryApi, type ItemDraft } from "@/api/inventory";
+import { ErrorBanner, PageHeader } from "@/components/PageHeader";
+import { ResponsiveTable, type Column } from "@/components/ResponsiveTable";
 import { useAuth } from "@/context/AuthContext";
 import type {
   InventoryCategory,
@@ -107,33 +109,93 @@ export function InventoryPage() {
     }
   }
 
+  const columns: Column<InventoryItem>[] = [
+    {
+      key: "name",
+      header: "Nomi",
+      mobile: "title",
+      cell: (item) => item.name,
+    },
+    {
+      key: "meta",
+      header: "Kategoriya",
+      mobile: "meta",
+      cell: (item) => (
+        <>
+          {item.category_label}
+          {item.note ? ` — ${item.note}` : ""}
+        </>
+      ),
+    },
+    {
+      key: "quantity",
+      header: "Qoldiq",
+      align: "right",
+      cell: (item) => (
+        <>
+          <span
+            className={`font-semibold tabular-nums ${
+              item.is_low ? "text-red-600" : "text-slate-800"
+            }`}
+          >
+            {item.quantity}
+          </span>
+          <span className="text-xs text-slate-400"> {item.unit}</span>
+          {item.min_quantity > 0 && (
+            <span className="ml-1 text-[11px] text-slate-400">min {item.min_quantity}</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "price",
+      header: "Narxi",
+      align: "right",
+      cell: (item) => <span className="tabular-nums">{money(item.unit_price)}</span>,
+    },
+    {
+      key: "status",
+      header: "Holati",
+      cell: (item) => <span className="text-xs">{item.status_label}</span>,
+    },
+    {
+      key: "actions",
+      header: "Amallar",
+      cell: (item) => (
+        <div className="flex flex-wrap justify-end gap-1.5 md:justify-start">
+          <button
+            onClick={() => openMovements(item)}
+            className="min-h-9 rounded-full border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            📜 Tarix
+          </button>
+          {canWrite && <MovementButton item={item} busy={busy} onSubmit={run} />}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">RTM Inventar</h1>
-          <p className="text-sm text-slate-500">
-            Ombor qoldig'i, sarflar va xaridlar. Har bir o'zgarish sababi bilan yoziladi.
-          </p>
-        </div>
-        {canWrite && (
-          <button
-            onClick={() => {
-              setCreating((v) => !v);
-              setDraft({ ...EMPTY_DRAFT, category_slug: categories[0]?.slug ?? "" });
-            }}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-          >
-            {creating ? "✖️ Bekor qilish" : "➕ Yangi inventar"}
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="RTM Inventar"
+        subtitle="Ombor qoldig'i, sarflar va xaridlar. Har bir o'zgarish sababi bilan yoziladi."
+        action={
+          canWrite && (
+            <button
+              onClick={() => {
+                setCreating((v) => !v);
+                setDraft({ ...EMPTY_DRAFT, category_slug: categories[0]?.slug ?? "" });
+              }}
+              className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              {creating ? "✖️ Bekor qilish" : "➕ Yangi inventar"}
+            </button>
+          )
+        }
+      />
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       {summary && (
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -268,12 +330,12 @@ export function InventoryPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Nomi bo'yicha qidirish..."
-          className="w-64 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-64"
         />
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto"
         >
           <option value="">Barcha kategoriyalar</option>
           {categories.map((c) => (
@@ -292,76 +354,13 @@ export function InventoryPage() {
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Nomi</th>
-              <th className="px-4 py-3">Kategoriya</th>
-              <th className="px-4 py-3 text-right">Qoldiq</th>
-              <th className="px-4 py-3 text-right">Narxi</th>
-              <th className="px-4 py-3">Holati</th>
-              <th className="px-4 py-3">Amallar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                  Hech narsa topilmadi
-                </td>
-              </tr>
-            )}
-            {items.map((item) => (
-              <tr
-                key={item.id}
-                className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 ${
-                  item.is_low ? "bg-red-50/50" : ""
-                }`}
-              >
-                <td className="px-4 py-3 font-medium">
-                  {item.name}
-                  {item.note && (
-                    <div className="text-xs font-normal text-slate-400">{item.note}</div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-slate-500">{item.category_label}</td>
-                <td className="px-4 py-3 text-right">
-                  <span
-                    className={`font-semibold tabular-nums ${
-                      item.is_low ? "text-red-600" : "text-slate-800"
-                    }`}
-                  >
-                    {item.quantity}
-                  </span>
-                  <span className="text-xs text-slate-400"> {item.unit}</span>
-                  {item.min_quantity > 0 && (
-                    <div className="text-[11px] text-slate-400">min {item.min_quantity}</div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-slate-600">
-                  {money(item.unit_price)}
-                </td>
-                <td className="px-4 py-3 text-xs text-slate-600">{item.status_label}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => openMovements(item)}
-                      className="rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100"
-                    >
-                      📜 Tarix
-                    </button>
-                    {canWrite && (
-                      <MovementButton item={item} busy={busy} onSubmit={run} />
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
+      <ResponsiveTable
+        rows={items}
+        columns={columns}
+        rowKey={(i) => i.id}
+        empty="Hech narsa topilmadi"
+        rowClass={(i) => (i.is_low ? "bg-red-50/60" : "")}
+      />
       {openItem && (
         <HistoryPanel
           item={openItem}

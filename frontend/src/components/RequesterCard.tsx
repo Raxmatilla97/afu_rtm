@@ -1,13 +1,5 @@
+import { EmployeeAvatar } from "@/components/EmployeeAvatar";
 import type { RequesterCard as RequesterCardData } from "@/types";
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 /**
  * Who reported the problem.
@@ -17,25 +9,17 @@ function initials(name: string): string {
  * employees list was the most common reason to leave this page.
  */
 export function RequesterCard({ requester }: { requester: RequesterCardData }) {
-  const photo = requester.image_local_path ? `/media/${requester.image_local_path}` : null;
-
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
       <div className="mb-4 text-xs font-medium uppercase tracking-wide text-slate-400">
         Murojaatchi
       </div>
       <div className="flex items-center gap-3">
-        {photo ? (
-          <img
-            src={photo}
-            alt={requester.full_name}
-            className="h-14 w-14 rounded-full border border-slate-200 object-cover"
-          />
-        ) : (
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-lg font-semibold text-brand-700">
-            {initials(requester.full_name)}
-          </div>
-        )}
+        <EmployeeAvatar
+          name={requester.full_name}
+          imagePath={requester.image_local_path}
+          size="lg"
+        />
         <div className="min-w-0">
           <div className="truncate font-semibold text-slate-900">{requester.full_name}</div>
           {requester.department_name && (

@@ -136,6 +136,12 @@ ro'yxati chiqadi. Muddat o'zgartirilsa, ogohlantirish qaytadan berilishi mumkin 
 Bajarilganda murojaatchiga 🎉🟢 yashil, tabriklovchi xabar boradi — sarflangan vaqt va
 baholash tugmalari bilan.
 
+### Veb-interfeys
+
+Sayt telefonda ham to‘liq ishlaydi. Yon menyu `lg` dan kichik ekranlarda yuqoridagi ☰ tugmasi orqali ochiladigan panelga aylanadi (sahifa tanlangach o‘zi yopiladi, orqa fon esa aylanmaydi). Jadvallar telefonda kartochkalarga aylanadi — olti ustunli jadval yonga siljib, kerakli ustunni yashirib qo‘yishdan ko‘ra, har bir satr o‘z sarlavhasi va nomlangan qatorlari bilan ko‘rinadi.
+
+Jadval ustunlari **bir marta** e’lon qilinadi va ikkala ko‘rinishga ham o‘sha ta’rifdan chiziladi ([ResponsiveTable](frontend/src/components/ResponsiveTable.tsx)) — aks holda jadvalga qo‘shilgan, kartochkaga qo‘shilmagan ustun aynan telefondan foydalanuvchilarga ko‘rinmay qolardi.
+
 ### RTM Inventar
 
 Ombor hisobi: asbob-uskunalar va tez ketadigan rasxodniklar (toner, baraban, kabel).

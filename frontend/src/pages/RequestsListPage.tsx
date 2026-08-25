@@ -1,79 +1,108 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { describeError } from "@/api/errors";
 import { requestsApi } from "@/api/requests";
+import { ErrorBanner, PageHeader } from "@/components/PageHeader";
+import { ResponsiveTable, type Column } from "@/components/ResponsiveTable";
 import { StatusBadge } from "@/components/StatusBadge";
-import type { RequestItem } from "@/types";
+import { STATUS_LABELS, type RequestItem } from "@/types";
+
+const FILTERS = [
+  ["", "Barcha holatlar"],
+  ["new", STATUS_LABELS.new],
+  ["assigned", STATUS_LABELS.assigned],
+  ["in_progress", STATUS_LABELS.in_progress],
+  ["waiting", STATUS_LABELS.waiting],
+  ["completed", STATUS_LABELS.completed],
+  ["cancelled", STATUS_LABELS.cancelled],
+] as const;
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("uz-UZ", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
 
 export function RequestsListPage() {
   const [items, setItems] = useState<RequestItem[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     requestsApi
       .list(statusFilter || undefined)
-      .then(setItems)
+      .then((rows) => {
+        setItems(rows);
+        setError(null);
+      })
+      .catch((e) => setError(describeError(e)))
       .finally(() => setLoading(false));
   }, [statusFilter]);
 
+  const columns: Column<RequestItem>[] = [
+    {
+      key: "number",
+      header: "№",
+      mobile: "title",
+      cell: (r) => (
+        <Link to={`/requests/${r.id}`} className="font-medium text-brand-700 hover:underline">
+          {r.display_number}
+        </Link>
+      ),
+    },
+    { key: "category", header: "Kategoriya", mobile: "meta", cell: (r) => r.category_label },
+    { key: "requester", header: "Murojaatchi", cell: (r) => r.requester_name || "—" },
+    {
+      key: "assignees",
+      header: "Bajaruvchi",
+      cell: (r) =>
+        r.assignees.length === 0
+          ? "—"
+          : r.assignees.map((a) => a.full_name).join(", "),
+    },
+    { key: "status", header: "Holat", cell: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: "created",
+      header: "Yaratilgan",
+      cell: (r) => <span className="text-slate-500">{shortDate(r.created_at)}</span>,
+    },
+  ];
+
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Murojaatlar</h1>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-        >
-          <option value="">Barcha holatlar</option>
-          <option value="new">Yangi</option>
-          <option value="assigned">Tayinlangan</option>
-          <option value="in_progress">Jarayonda</option>
-          <option value="completed">Bajarilgan</option>
-          <option value="cancelled">Bekor qilingan</option>
-        </select>
-      </div>
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title="Murojaatlar"
+        subtitle="Sizga ko'rinadigan barcha murojaatlar"
+        action={
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm"
+          >
+            {FILTERS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        }
+      />
+
+      {error && <ErrorBanner message={error} />}
 
       {loading ? (
         <div className="text-slate-400">Yuklanmoqda...</div>
-      ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-400">
-          Murojaatlar topilmadi
-        </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">№</th>
-                <th className="px-4 py-3">Kategoriya</th>
-                <th className="px-4 py-3">Murojaatchi</th>
-                <th className="px-4 py-3">Tayinlangan</th>
-                <th className="px-4 py-3">Holat</th>
-                <th className="px-4 py-3">Yaratilgan</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <Link to={`/requests/${r.id}`} className="font-medium text-brand-700 hover:underline">
-                      {r.display_number}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{r.category_label}</td>
-                  <td className="px-4 py-3">{r.requester_name}</td>
-                  <td className="px-4 py-3">{r.assigned_to_name || "-"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">{new Date(r.created_at).toLocaleString("uz-UZ")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable
+          rows={items}
+          columns={columns}
+          rowKey={(r) => r.id}
+          empty="Murojaatlar topilmadi"
+        />
       )}
     </div>
   );

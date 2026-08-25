@@ -145,7 +145,7 @@ export function RequestDetailPage() {
     <div className="mx-auto max-w-7xl">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{request.display_number}</h1>
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{request.display_number}</h1>
           <div className="text-sm text-slate-500">
             {request.category_label} · {request.source === "bot" ? "Telegram" : "Veb"}
           </div>
@@ -317,8 +317,10 @@ export function RequestDetailPage() {
           )}
         </div>
 
-        {/* Sticky so the conversation stays in view while the details column scrolls. */}
-        <div className="h-[calc(100vh-10rem)] lg:sticky lg:top-8">
+        {/* Sticky from lg up, where there is a second column to scroll past it. On a phone
+            the chat is the next block down and takes a fixed slice of the viewport, so the
+            composer stays reachable without scrolling the whole page first. */}
+        <div className="h-[75vh] lg:sticky lg:top-8 lg:h-[calc(100vh-8rem)]">
           <RequestChat
             requestId={requestId}
             requesterEmployeeId={request.requester_employee_id}
