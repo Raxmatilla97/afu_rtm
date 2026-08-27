@@ -10,6 +10,7 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import (
     JOIN_TRANSITION,
     LEAVE_TRANSITION,
@@ -47,14 +48,17 @@ WELCOME = (
     "✋ <b>Men bajaraman</b> — murojaatni o'z zimmangizga olasiz\n"
     "🤝 Bir murojaatni bir necha xodim birgalikda olishi mumkin\n"
     "💬 <b>Botda ochish</b> — yozishmalar, hisobot va yakunlash shaxsiy chatda\n\n"
-    "<i>O'chirish uchun: /rtm_off</i>"
+    "<i>Guruhni boshqarish tartibi: rtm.afu.uz → «Admin uchun eslatmalar».</i>"
 )
 
+#: Deliberately does not name the command that would fix it. This message lands in a shared
+#: chat, and printing "send /rtm_on" there hands the whole group the switch that turns the
+#: request feed on and off. Whoever actually needs it is RTM staff, and it is written down
+#: for them on the web panel instead of in front of forty people.
 NOT_AUTHORIZED = (
     "🔒 <b>Ulanmadi</b>\n\n"
-    "Bu guruhni faqat <b>RTM xodimi</b> ulay oladi. Botga shaxsan kirib "
-    "ro'yxatdan o'tgan RTM xodimi shu yerda <code>/rtm_on</code> buyrug'ini yuborsa, "
-    "guruh ulanadi."
+    "Bu guruhni faqat <b>RTM xodimi</b> ulay oladi. RTM bilan bog'laning — ulash tartibi "
+    "rtm.afu.uz saytidagi «Admin uchun eslatmalar» sahifasida yozilgan."
 )
 
 #: Shown as a pop-up, so it never lands in the group chat.
@@ -109,16 +113,33 @@ async def bot_removed(event: ChatMemberUpdated, session: AsyncSession) -> None:
         logger.info("Bot removed from group %s", event.chat.id)
 
 
+async def _hide_command(message: Message) -> None:
+    """Take the typed command back out of the group's history.
+
+    The command menu no longer offers /rtm_on and /rtm_off, but a member scrolling up would
+    still find one sitting in the chat where a colleague typed it — which is the same
+    advertisement, just delayed. Deleting needs the "delete messages" right, so this is best
+    effort: a bot that is not an administrator simply leaves the message there.
+    """
+    try:
+        await message.delete()
+    except TelegramAPIError as exc:
+        logger.debug("Could not delete a command in chat %s: %r", message.chat.id, exc)
+
+
 @router.message(Command("rtm_on"))
 async def enable_group(
     message: Message, session: AsyncSession, employee: Employee | None
 ) -> None:
     if not _is_rtm_staff(employee):
-        await message.reply(NOT_AUTHORIZED, parse_mode="HTML")
+        # answer, not reply: the message being answered is about to be deleted.
+        await message.answer(NOT_AUTHORIZED, parse_mode="HTML")
+        await _hide_command(message)
         return
 
     await _activate(session, message.chat.id, message.chat.title, message.chat.type, employee)
-    await message.reply(WELCOME, parse_mode="HTML")
+    await message.answer(WELCOME, parse_mode="HTML")
+    await _hide_command(message)
 
 
 @router.message(Command("rtm_off"))
@@ -126,16 +147,19 @@ async def disable_group(
     message: Message, session: AsyncSession, employee: Employee | None
 ) -> None:
     if not _is_rtm_staff(employee):
-        await message.reply(NOT_AUTHORIZED, parse_mode="HTML")
+        await message.answer(NOT_AUTHORIZED, parse_mode="HTML")
+        await _hide_command(message)
         return
 
     chat = await session.get(NotificationChat, message.chat.id)
     if chat is not None:
         chat.is_active = False
-    await message.reply(
-        "🔕 Bu guruhga endi murojaatlar yuborilmaydi. Qayta yoqish: <code>/rtm_on</code>",
+    await message.answer(
+        "🔕 Bu guruhga endi murojaatlar yuborilmaydi.\n"
+        "<i>Qayta yoqish tartibi: rtm.afu.uz → «Admin uchun eslatmalar».</i>",
         parse_mode="HTML",
     )
+    await _hide_command(message)
 
 
 async def _activate(

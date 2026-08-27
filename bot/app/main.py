@@ -5,7 +5,12 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatType, ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, MenuButtonCommands
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    MenuButtonCommands,
+)
 from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
 
@@ -39,12 +44,25 @@ BOT_COMMANDS = [
     BotCommand(command="cancel", description="Amalni bekor qilish"),
 ]
 
-#: A group sees only the two commands that mean anything there. Offering /menu or /cancel
-#: in a group would advertise flows that deliberately refuse to run outside a private chat.
-GROUP_COMMANDS = [
+#: The two commands that work in a group. Shown ONLY to that chat's administrators — the
+#: people who added the bot in the first place.
+GROUP_ADMIN_COMMANDS = [
     BotCommand(command="rtm_on", description="Guruhga murojaatlarni ulash"),
     BotCommand(command="rtm_off", description="Guruhga murojaatlarni o'chirish"),
 ]
+
+#: Ordinary group members get an empty "/" menu.
+#:
+#: /rtm_off silences the request feed for the whole group. Listing it in a menu that every
+#: member of a forty-person chat can open is an invitation to press it; the handler refuses
+#: anyone who is not RTM staff, but a refusal is still something a bored member can trigger
+#: all afternoon. The commands keep working when typed — they are written down on the web
+#: panel's "Admin uchun eslatmalar" page instead of advertised in the chat.
+#:
+#: An explicitly empty list rather than delete_my_commands: deleting a scope makes Telegram
+#: fall back to the next one up, which would put /menu and /cancel — private-chat flows
+#: that refuse to run in a group — in front of the whole group instead.
+GROUP_COMMANDS: list[BotCommand] = []
 
 
 async def main() -> None:
@@ -107,6 +125,9 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands(BOT_COMMANDS)
     await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+    await bot.set_my_commands(
+        GROUP_ADMIN_COMMANDS, scope=BotCommandScopeAllChatAdministrators()
+    )
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
     await dp.start_polling(bot, redis=redis, arq_pool=arq_pool)

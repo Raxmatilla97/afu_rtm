@@ -14,6 +14,7 @@ import { DepartmentsPage } from "@/pages/DepartmentsPage";
 import { HemisSyncPage } from "@/pages/HemisSyncPage";
 import { StatsPage } from "@/pages/StatsPage";
 import { LeaderboardPage } from "@/pages/LeaderboardPage";
+import { AdminNotesPage } from "@/pages/AdminNotesPage";
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/employees" element={<EmployeesPage />} />
               <Route path="/departments" element={<DepartmentsPage />} />
               <Route path="/hemis-sync" element={<HemisSyncPage />} />
+              <Route path="/admin-notes" element={<AdminNotesPage />} />
             </Route>
           </Route>
         </Route>
