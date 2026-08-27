@@ -44,25 +44,22 @@ BOT_COMMANDS = [
     BotCommand(command="cancel", description="Amalni bekor qilish"),
 ]
 
-#: The two commands that work in a group. Shown ONLY to that chat's administrators — the
-#: people who added the bot in the first place.
-GROUP_ADMIN_COMMANDS = [
-    BotCommand(command="rtm_on", description="Guruhga murojaatlarni ulash"),
-    BotCommand(command="rtm_off", description="Guruhga murojaatlarni o'chirish"),
-]
-
-#: Ordinary group members get an empty "/" menu.
+#: No "/" menu in a group at all — not for members, not for that chat's administrators.
 #:
-#: /rtm_off silences the request feed for the whole group. Listing it in a menu that every
-#: member of a forty-person chat can open is an invitation to press it; the handler refuses
-#: anyone who is not RTM staff, but a refusal is still something a bored member can trigger
-#: all afternoon. The commands keep working when typed — they are written down on the web
-#: panel's "Admin uchun eslatmalar" page instead of advertised in the chat.
+#: The only two commands that work in a group are /rtm_on and /rtm_off, and both are
+#: restricted to Boshliq and Admin. Telegram cannot express that as a command scope: its
+#: narrowest group scope is "this chat's administrators", and a Telegram group admin is not
+#: the same person as an RTM supervisor. A menu entry that refuses most of the people it is
+#: shown to is worse than no menu entry — and /rtm_off silences the whole team's request
+#: feed, which is not something to advertise to a forty-person chat.
+#:
+#: The commands still work when typed. They are written down for the people who may use
+#: them on the web panel's "Admin uchun eslatmalar" page.
 #:
 #: An explicitly empty list rather than delete_my_commands: deleting a scope makes Telegram
 #: fall back to the next one up, which would put /menu and /cancel — private-chat flows
 #: that refuse to run in a group — in front of the whole group instead.
-GROUP_COMMANDS: list[BotCommand] = []
+NO_GROUP_COMMANDS: list[BotCommand] = []
 
 
 async def main() -> None:
@@ -124,9 +121,9 @@ async def main() -> None:
 
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_my_commands(BOT_COMMANDS)
-    await bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+    await bot.set_my_commands(NO_GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
     await bot.set_my_commands(
-        GROUP_ADMIN_COMMANDS, scope=BotCommandScopeAllChatAdministrators()
+        NO_GROUP_COMMANDS, scope=BotCommandScopeAllChatAdministrators()
     )
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 

@@ -3,8 +3,12 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Same reasoning as the pip timeouts in the Python images: the registry is reached over
+# the same link, and a default of two retries is not enough when it is having a bad day.
+ENV NPM_CONFIG_FETCH_RETRIES=5 NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
+
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN --mount=type=cache,target=/root/.npm npm install
 
 COPY frontend/ ./
 

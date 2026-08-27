@@ -5,9 +5,20 @@ WORKDIR /srv
 COPY shared /srv/shared
 COPY bot /srv/bot
 
-# --root-user-action=ignore: pip's root warning is meaningless inside a container,
-# and silencing it keeps real errors visible in deploy logs.
-RUN pip install --no-cache-dir --root-user-action=ignore -e /srv/shared -e /srv/bot
+# A slow link to PyPI is the most common way this build fails, and it fails badly: pip's
+# default read timeout is 15 seconds, so one stalled chunk part-way through a large wheel
+# aborts the whole install and takes the deploy with it. More patience and more retries
+# turn a bad minute on the network into a slow build rather than a failed one.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10 PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# --root-user-action=ignore silences pip's root warning, which is meaningless inside a
+# container and only hides real errors in deploy logs.
+#
+# The cache mount matters more: the three Python images install overlapping sets of the
+# same wheels, so without it one deploy downloads each of them three times over the same
+# link — and a build that times out starts its downloads again from nothing. A cache
+# mount is not part of any layer, so the images stay exactly as small as they were.
+RUN --mount=type=cache,target=/root/.cache/pip pip install --root-user-action=ignore -e /srv/shared -e /srv/bot
 
 WORKDIR /srv/bot
 

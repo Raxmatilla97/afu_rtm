@@ -53,12 +53,19 @@ WELCOME = (
 
 #: Deliberately does not name the command that would fix it. This message lands in a shared
 #: chat, and printing "send /rtm_on" there hands the whole group the switch that turns the
-#: request feed on and off. Whoever actually needs it is RTM staff, and it is written down
-#: for them on the web panel instead of in front of forty people.
+#: request feed on and off. Whoever may actually use it is a Boshliq or an Admin, and it is
+#: written down for them on the web panel instead of in front of forty people.
 NOT_AUTHORIZED = (
     "🔒 <b>Ulanmadi</b>\n\n"
-    "Bu guruhni faqat <b>RTM xodimi</b> ulay oladi. RTM bilan bog'laning — ulash tartibi "
-    "rtm.afu.uz saytidagi «Admin uchun eslatmalar» sahifasida yozilgan."
+    "Bu guruhni faqat <b>Boshliq</b> yoki <b>Admin</b> ulay oladi. RTM bilan bog'laning — "
+    "ulash tartibi rtm.afu.uz saytidagi «Admin uchun eslatmalar» sahifasida yozilgan."
+)
+
+#: The refusal for /rtm_off. Separate from NOT_AUTHORIZED because "Ulanmadi" reads as
+#: nonsense in reply to somebody trying to disconnect a group that is already connected.
+NOT_ALLOWED_OFF = (
+    "🔒 <b>Ruxsat yo'q</b>\n\n"
+    "Guruhni murojaatlardan uzishni faqat <b>Boshliq</b> yoki <b>Admin</b> bajara oladi."
 )
 
 #: Shown as a pop-up, so it never lands in the group chat.
@@ -68,8 +75,18 @@ NOT_A_MANAGER = (
 )
 
 
-def _is_rtm_staff(employee: Employee | None) -> bool:
-    return employee is not None and employee.is_eligible and employee.is_rtm_staff
+def _can_manage_group(employee: Employee | None) -> bool:
+    """Who may connect a group to the request feed, or cut it off.
+
+    Boshliq and Admin only — not every RTM staffer. Switching the feed off silences the
+    whole team's queue, and switching it on starts posting reporters' names and phone
+    numbers into a chat; both are decisions about the service rather than about one job,
+    which is exactly the line the two management roles already draw everywhere else.
+
+    ``can_manage_assignments`` carries the eligibility check with it, so a blocked or
+    departed supervisor loses this along with everything else.
+    """
+    return employee is not None and employee.can_manage_assignments
 
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=JOIN_TRANSITION))
@@ -79,20 +96,20 @@ async def bot_added(
     employee: Employee | None,
     bot: Bot,
 ) -> None:
-    """Register the group — but only when an RTM staff member is the one adding the bot.
+    """Register the group — but only when a Boshliq or an Admin is the one adding the bot.
 
     Without that check anyone could add this bot to any chat and start receiving every
     request in the university, complete with reporters' names and phone numbers.
 
     An unauthorised add leaves the bot sitting in the chat rather than making it walk out:
     leaving looks like a malfunction, and staying costs nothing because an unregistered chat
-    is never posted to. A staff member can finish the job with /rtm_on.
+    is never posted to. A Boshliq or Admin can finish the job from inside the group.
     """
     if event.chat.type not in GROUP_TYPES:
         return
 
-    if not _is_rtm_staff(employee):
-        logger.info("Bot added to chat %s by a non-RTM user", event.chat.id)
+    if not _can_manage_group(employee):
+        logger.info("Bot added to chat %s by somebody who may not manage groups", event.chat.id)
         await bot.send_message(event.chat.id, NOT_AUTHORIZED, parse_mode="HTML")
         return
 
@@ -131,7 +148,7 @@ async def _hide_command(message: Message) -> None:
 async def enable_group(
     message: Message, session: AsyncSession, employee: Employee | None
 ) -> None:
-    if not _is_rtm_staff(employee):
+    if not _can_manage_group(employee):
         # answer, not reply: the message being answered is about to be deleted.
         await message.answer(NOT_AUTHORIZED, parse_mode="HTML")
         await _hide_command(message)
@@ -146,8 +163,8 @@ async def enable_group(
 async def disable_group(
     message: Message, session: AsyncSession, employee: Employee | None
 ) -> None:
-    if not _is_rtm_staff(employee):
-        await message.answer(NOT_AUTHORIZED, parse_mode="HTML")
+    if not _can_manage_group(employee):
+        await message.answer(NOT_ALLOWED_OFF, parse_mode="HTML")
         await _hide_command(message)
         return
 

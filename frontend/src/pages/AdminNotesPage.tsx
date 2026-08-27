@@ -40,14 +40,19 @@ export function AdminNotesPage() {
               yozish kerak.
             </p>
             <p className="mt-2">
-              Faqat <b>RTM xodimi</b> ishlata oladi — ya'ni botda ro'yxatdan o'tgan va admin
-              panelida «RTM xodimi» belgisi qo'yilgan xodim. Boshqa odam yozsa, bot ulanmaydi.
+              Faqat <b>Boshliq</b> yoki <b>Admin</b> ishlata oladi. Oddiy RTM xodimi yozsa
+              ham, guruhdagi boshqa a'zo yozsa ham — bot ulanmaydi va «Ulanmadi» deb javob
+              beradi.
             </p>
           </Card>
           <Card tone="red" title="🔕 /rtm_off — guruhni uzish">
             <p>
               Guruhga yangi murojaatlar yuborilishini to'xtatadi. Eski kartochkalar joyida
               qoladi, lekin yangilanmaydi.
+            </p>
+            <p className="mt-2">
+              Bu ham faqat <b>Boshliq</b> va <b>Admin</b> uchun — bitta buyruq bilan butun
+              jamoaning murojaat oqimi to'xtaydi.
             </p>
             <p className="mt-2">
               Yozuv o'chirilmaydi — qayta <code className="rounded bg-slate-100 px-1">/rtm_on</code>{" "}
@@ -64,22 +69,24 @@ export function AdminNotesPage() {
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>
-              guruh menyusi <b>bo'sh</b> qoldirildi — oddiy a'zo hech qanday buyruq ko'rmaydi;
-            </li>
-            <li>
-              <code className="rounded bg-slate-100 px-1">/rtm_on</code> va{" "}
-              <code className="rounded bg-slate-100 px-1">/rtm_off</code> faqat{" "}
-              <b>guruh administratorlari</b> menyusida qoldi;
+              guruhdagi «/» menyusi <b>butunlay bo'sh</b> — na oddiy a'zo, na guruh
+              administratori hech qanday buyruq ko'rmaydi;
             </li>
             <li>
               bot guruhda administrator bo'lsa, yozilgan buyruqni chatdan <b>o'chirib
               tashlaydi</b> — tarixda ham ko'rinib qolmaydi;
             </li>
-            <li>bot guruhga yozadigan xabarlarda bu buyruqlar endi eslatilmaydi.</li>
+            <li>bot guruhga yozadigan xabarlarda bu buyruqlar endi eslatilmaydi;</li>
+            <li>
+              buyruqni <b>Boshliq yoki Admin</b> bo'lmagan odam yozsa, hech narsa
+              o'zgarmaydi.
+            </li>
           </ul>
           <p className="mt-2">
-            Buyruqlar menyuda ko'rinmasa ham <b>yozilsa ishlayveradi</b> — shuning uchun ular
-            aynan shu sahifada yozib qo'yilgan.
+            Telegram «faqat Boshliq va Adminga ko'rsat» degan sozlamani bilmaydi — uning eng
+            tor guruh doirasi «shu chat administratorlari», bu esa RTM boshlig'i degani emas.
+            Shuning uchun menyu butunlay bo'shatildi, buyruqlar esa aynan shu sahifada yozib
+            qo'yildi: menyuda ko'rinmasa ham, <b>yozilsa ishlayveradi</b>.
           </p>
         </Callout>
 
@@ -88,18 +95,21 @@ export function AdminNotesPage() {
         </h3>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700">
           <li>
-            Ulanadigan RTM xodimi avval botda shaxsan ro'yxatdan o'tgan bo'lishi kerak
+            Guruhni ulaydigan odam avval botda shaxsan ro'yxatdan o'tgan bo'lishi kerak
             (<code className="rounded bg-slate-100 px-1">/start</code> → HEMIS orqali tasdiq →
             telefon raqamni ulashish).
           </li>
-          <li>Admin panelida o'sha xodimga «RTM xodimi» belgisi qo'yilgan bo'lsin.</li>
           <li>
-            O'sha xodim botni guruhga qo'shsin. Bot avtomatik ulanadi va guruhga «ulandi»
+            Admin panelidagi «Xodimlar» sahifasida o'sha odamga <b>Boshliq</b> yoki{" "}
+            <b>Admin</b> belgisi qo'yilgan bo'lsin — faqat shu ikki rol guruhni ula oladi.
+          </li>
+          <li>
+            O'sha odam botni guruhga qo'shsin. Bot avtomatik ulanadi va guruhga «ulandi»
             xabarini yozadi.
           </li>
           <li>
             Agar botni boshqa odam qo'shgan bo'lsa, guruh <b>ulanmaydi</b> — bot chatda qoladi,
-            lekin unga hech narsa yubormaydi. Keyin RTM xodimi guruhda{" "}
+            lekin unga hech narsa yubormaydi. Keyin Boshliq yoki Admin guruhda{" "}
             <code className="rounded bg-slate-100 px-1">/rtm_on</code> yozsa, ulanadi.
           </li>
           <li>
@@ -352,15 +362,15 @@ const ROLE_ROWS = [
   },
   {
     role: "RTM xodimi",
-    can: "Guruhdan murojaat oladi, ishni boshlaydi, inventar sarflaydi, hisobot bilan yakunlaydi. Faqat o'zining murojaatlarini ko'radi.",
+    can: "Guruhdan murojaat oladi, ishni boshlaydi, inventar sarflaydi, hisobot bilan yakunlaydi. Faqat o'zining murojaatlarini ko'radi. Guruhni ula olmaydi va uza olmaydi.",
   },
   {
     role: "Boshliq",
-    can: "Barcha murojaatlarni ko'radi, xodimga tayinlaydi va murojaatdan chiqaradi, muddat qo'yadi, noto'g'ri murojaatni qaytaradi, inventar va soft bo'limlariga yozadi.",
+    can: "Barcha murojaatlarni ko'radi, xodimga tayinlaydi va murojaatdan chiqaradi, muddat qo'yadi, noto'g'ri murojaatni qaytaradi, inventar va soft bo'limlariga yozadi, RTM guruhini ulaydi va uzadi.",
   },
   {
     role: "Admin (HEMIS hisobi)",
-    can: "Boshliqning barcha huquqlari, ustiga admin panel: xodimlar rollari, bo'limlar, HEMIS sinxronizatsiyasi va shu sahifa.",
+    can: "Boshliqning barcha huquqlari (guruhni ulash va uzish ham), ustiga admin panel: xodimlar rollari, bo'limlar, HEMIS sinxronizatsiyasi va shu sahifa.",
   },
   {
     role: "Panel admin (email/parol)",
