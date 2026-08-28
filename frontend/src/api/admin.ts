@@ -9,6 +9,13 @@ export interface SiteConfig {
   contact_phone: string;
 }
 
+export interface SmtpTestResult {
+  at: string;
+  to: string;
+  ok: boolean;
+  message: string | null;
+}
+
 export interface SmtpConfig {
   host: string;
   port: number;
@@ -17,6 +24,8 @@ export interface SmtpConfig {
   starttls: boolean;
   /** The password itself is never sent to the browser — only whether one is stored. */
   has_password: boolean;
+  /** The outcome of the last test letter, so the answer appears where it was asked. */
+  last_test: SmtpTestResult | null;
 }
 
 export interface SmtpUpdate {

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class SiteConfig(BaseModel):
@@ -22,6 +22,15 @@ class SiteConfigPublic(BaseModel):
     organization: str
 
 
+class SmtpTestResult(BaseModel):
+    """What happened the last time somebody pressed "send a test letter"."""
+
+    at: str
+    to: str
+    ok: bool
+    message: str | None = None
+
+
 class SmtpConfigPublic(BaseModel):
     host: str = ""
     port: int = 587
@@ -30,6 +39,8 @@ class SmtpConfigPublic(BaseModel):
     starttls: bool = True
     #: Never the password itself — only whether one is stored.
     has_password: bool = False
+    #: So the answer to a test send appears on the page that asked, not in container logs.
+    last_test: SmtpTestResult | None = None
 
 
 class SmtpConfigUpdate(BaseModel):
@@ -41,6 +52,19 @@ class SmtpConfigUpdate(BaseModel):
     password: str = Field(default="", max_length=200)
     from_address: str = Field(default="", max_length=200)
     starttls: bool = True
+
+    @field_validator("host", "user", "from_address", mode="before")
+    @classmethod
+    def _collapse_whitespace(cls, value: object) -> object:
+        """A line break pasted into any of these breaks the SMTP conversation itself.
+
+        Mail headers are line-delimited, so a newline in a From value is both a
+        malformed address and the classic header-injection vector. Collapsing every run of
+        whitespace to one space fixes the paste and closes the hole in the same step.
+        """
+        if isinstance(value, str):
+            return " ".join(value.split())
+        return value
 
 
 class SmtpTestRequest(BaseModel):

@@ -11,6 +11,7 @@ which reports whether a password is stored without ever repeating it.
 """
 
 import logging
+from email.utils import formataddr, parseaddr
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,7 @@ __all__ = [
     "site_config",
     "smtp_config",
     "smtp_config_public",
+    "resolve_from_address",
 ]
 
 
@@ -109,3 +111,43 @@ def smtp_config_public(config: dict[str, Any]) -> dict[str, Any]:
     public = {k: v for k, v in config.items() if k != "password"}
     public["has_password"] = bool(config.get("password"))
     return public
+
+
+def resolve_from_address(config: dict[str, Any]) -> str:
+    """A From header the mail server will actually accept.
+
+    Three things go wrong here in practice, and all three were seen on the first real
+    configuration:
+
+    * **A display name with no angle brackets.** ``RTM Murojaatlar pochta@afu.uz`` parses as
+      one address, and the library dutifully quotes it into
+      ``"RTM Murojaatlar pochta"@afu.uz`` — an address nobody owns, which the server
+      refuses. The name and the address are separated here instead.
+    * **A newline in the value.** Python refuses to store it, so a pasted line break used to
+      crash the send outright; it is also the classic header-injection vector, which is why
+      it is stripped rather than passed along.
+    * **Nothing at all.** An empty field falls back to the authenticated account, which is
+      the one address every server is willing to send as.
+    """
+    raw = " ".join((config.get("from_address") or "").split()).strip()
+    user = (config.get("user") or "").strip()
+
+    name, address = parseaddr(raw)
+    # A space inside the parsed address is the tell-tale of the missing-brackets case:
+    # parseaddr swallowed "RTM Murojaatlar pochta@afu.uz" whole and called it an address.
+    if "@" not in address or " " in address:
+        # Pick the token that looks like an address; the rest is the display name.
+        tokens = raw.split()
+        addresses = [token.strip("<>,;") for token in tokens if "@" in token]
+        if addresses:
+            address = addresses[-1]
+            name = " ".join(token for token in tokens if "@" not in token).strip(' "')
+        else:
+            address = user
+            name = raw.strip(' "')
+
+    if "@" not in address:
+        address = user
+    if not address:
+        return ""
+    return formataddr((name, address)) if name else address

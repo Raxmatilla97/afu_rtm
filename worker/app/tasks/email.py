@@ -1,23 +1,27 @@
-"""Outgoing email. One letter so far: the password reset link.
+"""Outgoing email: the password reset link, and the test letter that proves it works.
 
-SMTP is blocking, so the send runs in a thread — an arq worker shares one event loop with
+SMTP is blocking, so every send runs in a thread — an arq worker shares one event loop with
 every notification job, and a mail server that takes eight seconds to answer would stall
 Telegram delivery behind it.
 
-With ``SMTP_HOST`` unset the job logs loudly and gives up rather than pretending. Silence
-here would be the worst outcome available: somebody waits for a letter that was never sent
-and never finds out why.
+Two lessons from the first real configuration are built in here. Institutional mail servers
+usually refuse to send as any address other than the account that authenticated, so a
+refused sender is retried once as the account itself rather than simply lost. And the
+outcome of a test send is written back to the settings row: an administrator configuring
+mail should not have to read container logs to find out that the password was wrong.
 """
 
 import asyncio
 import logging
 import smtplib
+from datetime import datetime, timezone
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 from afu_shared.db import session_scope
-from afu_shared.models import Employee
+from afu_shared.models import KEY_SMTP, Employee
 from afu_shared.settings import settings
-from afu_shared.site_settings import smtp_config
+from afu_shared.site_settings import resolve_from_address, save_group, smtp_config
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +92,88 @@ def _send_blocking(message: EmailMessage, config: dict) -> None:
         smtp.send_message(message)
 
 
+def explain(exc: Exception, config: dict) -> str:
+    """One Uzbek sentence naming the fix, not the exception.
+
+    These are the failures that actually happen when somebody fills the form in for the
+    first time; anything unrecognised falls through with its own text, which is still more
+    use than "xatolik".
+    """
+    user = config.get("user") or "—"
+
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return (
+            f"Server «{user}» hisobidan boshqa manzil nomidan xat yuborishga ruxsat "
+            f"bermadi. «Jo'natuvchi manzil» maydoniga aynan {user} ni yozing "
+            f"(masalan: RTM Murojaatlar <{user}>)."
+        )
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return "Login yoki parol noto'g'ri — server hisobni tanimadi."
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return "Server qabul qiluvchi manzilni rad etdi. Manzilni tekshiring."
+    if isinstance(exc, smtplib.SMTPNotSupportedError):
+        return (
+            "Server bu ulanish turini qo'llamaydi. STARTTLS belgisini o'zgartirib ko'ring "
+            "(587-port uchun yoqilgan, 465-port uchun o'chirilgan bo'ladi)."
+        )
+    if isinstance(exc, (TimeoutError, ConnectionRefusedError, OSError)):
+        return (
+            "Serverga ulanib bo'lmadi. Manzil va portni tekshiring "
+            "(587 — STARTTLS, 465 — SSL)."
+        )
+    return f"Xatolik: {exc}"
+
+
+async def _deliver(message: EmailMessage, config: dict) -> tuple[bool, str | None]:
+    """Send, retrying once as the authenticated account if the sender was refused.
+
+    Returns ``(ok, error_message)``. The retry exists because the alternative is a
+    password reset that silently never arrives: the reporter is waiting for a letter, and
+    "the From address is not the login" is a configuration detail they cannot see or fix.
+    """
+    try:
+        await asyncio.to_thread(_send_blocking, message, config)
+        return True, None
+    except smtplib.SMTPSenderRefused as exc:
+        account = (config.get("user") or "").strip()
+        _, current = parseaddr(message["From"] or "")
+        if not account or current.lower() == account.lower():
+            return False, explain(exc, config)
+
+        logger.warning(
+            "Sender %r refused; retrying as the authenticated account %r", current, account
+        )
+        del message["From"]
+        message["From"] = account
+        try:
+            await asyncio.to_thread(_send_blocking, message, config)
+        except (smtplib.SMTPException, OSError) as retry_exc:
+            return False, explain(retry_exc, config)
+        return True, (
+            f"Xat yuborildi, lekin «{current}» nomidan emas — server faqat {account} "
+            f"nomidan yuborishga ruxsat berdi. «Jo'natuvchi manzil» ni shunga moslang."
+        )
+    except (smtplib.SMTPException, OSError) as exc:
+        return False, explain(exc, config)
+
+
+async def _record_test_result(to_address: str, ok: bool, message: str | None) -> None:
+    """Put the outcome where the person who pressed the button will see it."""
+    async with session_scope() as session:
+        await save_group(
+            session,
+            KEY_SMTP,
+            {
+                "last_test": {
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "to": to_address,
+                    "ok": ok,
+                    "message": message,
+                }
+            },
+        )
+
+
 async def send_password_reset_email(ctx: dict, employee_id: int, token: str) -> None:
     """Mail one reset link.
 
@@ -122,37 +208,46 @@ async def send_password_reset_email(ctx: dict, employee_id: int, token: str) -> 
         full_name=full_name,
         link=f"{settings.public_base_url.rstrip('/')}/reset-password?token={token}",
         ttl_minutes=settings.password_reset_ttl_minutes,
-        from_address=config.get("from_address") or settings.smtp_from,
+        from_address=resolve_from_address(config) or settings.smtp_from,
     )
 
-    try:
-        await asyncio.to_thread(_send_blocking, message, config)
-    except (smtplib.SMTPException, OSError) as exc:
+    ok, note = await _deliver(message, config)
+    if not ok:
         # Named rather than swallowed: "the letter never arrived" is otherwise indis-
         # tinguishable from a typo in the address, and the two have different fixes.
-        logger.error("Could not send the reset email for employee %s: %r", employee_id, exc)
+        logger.error("Reset email for employee %s failed: %s", employee_id, note)
         return
 
-    logger.info("Password reset email sent for employee %s", employee_id)
+    logger.info("Password reset email sent for employee %s%s", employee_id, f" ({note})" if note else "")
 
 
 async def send_test_email(ctx: dict, to_address: str) -> None:
     """Prove the mail settings work, from the panel, before somebody needs them.
 
-    Deliberately its own job rather than a synchronous send inside the request: SMTP can
-    take half a minute to fail, and an admin watching a spinner cannot tell a slow server
-    from a hung one.
+    Its own job rather than a synchronous send inside the request: SMTP can take half a
+    minute to fail, and an admin watching a spinner cannot tell a slow server from a hung
+    one. The result is written back to the settings row, so the answer appears on the page
+    that asked the question.
     """
     async with session_scope() as session:
         config = await smtp_config(session)
 
     if not config.get("host"):
-        logger.error("send_test_email: no SMTP host configured")
+        await _record_test_result(to_address, False, "Pochta serveri (host) kiritilmagan.")
+        return
+
+    from_address = resolve_from_address(config)
+    if not from_address:
+        await _record_test_result(
+            to_address,
+            False,
+            "Jo'natuvchi manzil ham, login ham bo'sh — kamida bittasini to'ldiring.",
+        )
         return
 
     message = EmailMessage()
     message["Subject"] = "RTM Murojaatlar — sinov xati"
-    message["From"] = config.get("from_address") or settings.smtp_from
+    message["From"] = from_address
     message["To"] = to_address
     message.set_content(
         "Bu — RTM Murojaatlar tizimidan yuborilgan sinov xati.\n\n"
@@ -161,10 +256,11 @@ async def send_test_email(ctx: dict, to_address: str) -> None:
         "RTM — Alfraganus University"
     )
 
-    try:
-        await asyncio.to_thread(_send_blocking, message, config)
-    except (smtplib.SMTPException, OSError) as exc:
-        logger.error("Test email to %s failed: %r", to_address, exc)
+    ok, note = await _deliver(message, config)
+    if ok:
+        logger.info("Test email sent to %s%s", to_address, f" ({note})" if note else "")
+        await _record_test_result(to_address, True, note or "Xat muvaffaqiyatli yuborildi.")
         return
 
-    logger.info("Test email sent to %s", to_address)
+    logger.error("Test email to %s failed: %s", to_address, note)
+    await _record_test_result(to_address, False, note)

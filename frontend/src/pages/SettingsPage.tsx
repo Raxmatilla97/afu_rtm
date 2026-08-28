@@ -200,6 +200,35 @@ function SmtpTab() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+
+  /**
+   * Wait for the worker to write back what the mail server said.
+   *
+   * The send is a queued job, so there is nothing to await: the page polls the settings
+   * row until the recorded result is newer than the one it started with. Twenty seconds
+   * covers a slow handshake; past that the answer is in the worker log and the message
+   * says so rather than spinning forever.
+   */
+  async function pollForResult(previousAt: string) {
+    setWaiting(true);
+    try {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const fresh = await adminApi.smtpSettings();
+        setConfig(fresh);
+        if (fresh.last_test && fresh.last_test.at !== previousAt) {
+          setNotice(null);
+          return;
+        }
+      }
+      setNotice(
+        "Javob hali kelmadi. Worker ishlayotganini tekshiring yoki bir oz kuting.",
+      );
+    } finally {
+      setWaiting(false);
+    }
+  }
 
   useEffect(() => {
     adminApi.smtpSettings().then(setConfig).catch((e) => setError(describeError(e)));
@@ -298,11 +327,23 @@ function SmtpTab() {
               className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
           </Field>
-          <Field label="Jo'natuvchi manzil (From)" className="sm:col-span-2">
+          <Field
+            label="Jo'natuvchi manzil (From)"
+            className="sm:col-span-2"
+            hint={
+              config.user
+                ? `Ko'pchilik serverlar faqat login manzili nomidan yuborishga ruxsat beradi. Tavsiya: RTM Murojaatlar <${config.user}>`
+                : "Ism va manzilni burchak qavs ichida yozing: RTM Murojaatlar <pochta@afu.uz>"
+            }
+          >
             <input
               value={config.from_address}
               onChange={(e) => setConfig({ ...config, from_address: e.target.value })}
-              placeholder="RTM Murojaatlar <no-reply@afu.uz>"
+              placeholder={
+                config.user
+                  ? `RTM Murojaatlar <${config.user}>`
+                  : "RTM Murojaatlar <pochta@afu.uz>"
+              }
               className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
           </Field>
@@ -342,18 +383,39 @@ function SmtpTab() {
           />
           <button
             type="button"
-            disabled={busy || !testTo.trim()}
+            disabled={busy || waiting || !testTo.trim()}
             onClick={() =>
               void run(async () => {
-                const result = await adminApi.sendTestEmail(testTo.trim());
-                setNotice(result.message);
+                const before = config.last_test?.at ?? "";
+                await adminApi.sendTestEmail(testTo.trim());
+                setNotice("Xat navbatga qo'yildi, javob kutilmoqda...");
+                await pollForResult(before);
               })
             }
             className="min-h-11 rounded-lg border border-brand-600 px-4 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
           >
-            ✉️ Sinov xatini yuborish
+            {waiting ? "Kutilmoqda..." : "✉️ Sinov xatini yuborish"}
           </button>
         </div>
+
+        {config.last_test && (
+          <div
+            className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+              config.last_test.ok
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-red-200 bg-red-50 text-red-800"
+            }`}
+          >
+            <div className="font-semibold">
+              {config.last_test.ok ? "✅ Xat yuborildi" : "❌ Xat yuborilmadi"} —{" "}
+              {config.last_test.to}
+            </div>
+            {config.last_test.message && <p className="mt-1">{config.last_test.message}</p>}
+            <div className="mt-1 text-xs opacity-70">
+              {new Date(config.last_test.at).toLocaleString("uz-UZ")}
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
