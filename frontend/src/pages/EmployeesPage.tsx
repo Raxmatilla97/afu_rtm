@@ -405,6 +405,11 @@ function EmployeeDetailModal({
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    // A submit while nothing is being edited is always spurious — the dialog is a <form>
+    // for the whole of its life, so anything that reaches the browser's default submit
+    // behaviour lands here. Saving in that state writes the record back over itself and
+    // silently leaves edit mode, which looks exactly like the dialog refusing to open.
+    if (!editing || saving) return;
     if (!draft.full_name.trim()) {
       setFormError("F.I.Sh. bo'sh bo'lishi mumkin emas.");
       return;
@@ -574,11 +579,20 @@ function EmployeeDetailModal({
           </div>
 
           {/* At the top, where the decision to edit is made — not at the bottom of a
-              dialog that has to be scrolled to reach it. */}
+              dialog that has to be scrolled to reach it.
+
+              The keys are load-bearing, not tidiness. Without them React sees a <button>
+              in the same slot before and after the switch, keeps the DOM node and merely
+              patches its attributes — so «Tahrirlash» turns into type="submit" *during*
+              the click that pressed it, and the browser then runs its default action on
+              what is now a submit button. The form submitted, saved nothing, and dropped
+              straight back out of edit mode a few milliseconds later. Distinct keys make
+              React build new nodes instead of mutating the one being clicked. */}
           <div className="flex shrink-0 items-center gap-2">
             {editing ? (
               <>
                 <button
+                  key="save"
                   type="submit"
                   disabled={saving}
                   className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
@@ -586,6 +600,7 @@ function EmployeeDetailModal({
                   {saving ? "Saqlanmoqda..." : "💾 Saqlash"}
                 </button>
                 <button
+                  key="cancel"
                   type="button"
                   onClick={cancelEditing}
                   disabled={saving}
@@ -597,6 +612,7 @@ function EmployeeDetailModal({
             ) : (
               <>
                 <button
+                  key="edit"
                   type="button"
                   onClick={startEditing}
                   className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700"
@@ -604,6 +620,7 @@ function EmployeeDetailModal({
                   ✏️ Tahrirlash
                 </button>
                 <button
+                  key="close"
                   type="button"
                   onClick={onClose}
                   aria-label="Yopish"
@@ -802,10 +819,13 @@ function EmployeeDetailModal({
           </div>
         </div>
 
+        {/* Keyed for the same reason as the header buttons above: a <button> that keeps
+            its DOM node across the switch has its `type` rewritten mid-click. */}
         <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
           {editing ? (
             <>
               <button
+                key="cancel"
                 type="button"
                 onClick={cancelEditing}
                 disabled={saving}
@@ -814,6 +834,7 @@ function EmployeeDetailModal({
                 Bekor qilish
               </button>
               <button
+                key="save"
                 type="submit"
                 disabled={saving}
                 className="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
@@ -823,6 +844,7 @@ function EmployeeDetailModal({
             </>
           ) : (
             <button
+              key="close"
               type="button"
               onClick={onClose}
               className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm text-slate-600 hover:bg-slate-50"
