@@ -267,6 +267,11 @@ def _image_refetch_reason(
         return "never-downloaded"
     if Path(row.image_local_path).name not in stored:
         return "file-missing"
+    if row.image_manual_at is not None:
+        # An administrator replaced this portrait on purpose. The URL check below can never
+        # match a hand-uploaded file, so without this the upload would be silently
+        # overwritten by the HEMIS portrait on the very next run.
+        return None
     if row.image_source_url not in {url for url, _ in candidates}:
         return "url-changed"
     return None
@@ -336,6 +341,10 @@ async def _sync_employees(session, emp_items: list[dict[str, Any]], dept_map: di
                 else None
             )
             if reason:
+                if reason == "file-missing":
+                    # A hand-uploaded portrait whose file has gone cannot be recovered from
+                    # HEMIS, so the marker goes with it and the HEMIS photo takes over.
+                    row.image_manual_at = None
                 refetch_reasons[reason] += 1
                 pending_images[employee_id_number] = image_candidates
         elif not row.access_revoked:

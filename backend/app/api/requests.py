@@ -1,10 +1,12 @@
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import or_, select
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.assignments import assignee_ids, set_assignees
@@ -12,22 +14,27 @@ from afu_shared.activity import record_for
 from afu_shared.enums import AttachmentKind, MessageVisibility, RequestSource, RequestStatus
 from afu_shared.models import (
     Employee,
+    InventoryMovement,
     Rating,
     Request,
     RequestAssignee,
     RequestAttachment,
+    RequestGroupPost,
     RequestMessage,
     RequestStatusHistory,
     User,
 )
+from afu_shared.richtext import html_to_text, sanitize_html
 from afu_shared.settings import settings
 from app.arq_pool import get_arq_pool
-from app.deps import get_current_caller, get_db
+from app.deps import get_admin_actor, get_current_caller, get_db
 from app.downloads import serve_headers
 from app.schemas.rating import RatingCreate, RatingResponse
 from app.schemas.request import (
     RequestAssign,
     RequestAttachmentResponse,
+    RequestBulkDelete,
+    RequestBulkDeleteResult,
     RequestComplete,
     RequestCreate,
     RequestMessageCreate,
@@ -43,6 +50,10 @@ router = APIRouter(prefix="/requests", tags=["requests"])
 #: otherwise reject the request before FastAPI ever sees it, and the user would get a bare
 #: 413 page instead of a readable message.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+#: How many requests one bulk delete may take. High enough to clear a screenful of test
+#: data in one press, low enough that a mistyped selection cannot empty the queue.
+BULK_DELETE_LIMIT = 200
 
 
 async def _get_request_or_404(session: AsyncSession, request_id: int) -> Request:
@@ -76,6 +87,19 @@ async def _check_can_view(
     )
 
 
+async def _resolve_staff(session: AsyncSession, employee_ids: list[int]) -> list[Employee]:
+    """The employees behind ``employee_ids``, refusing anyone who is not RTM staff."""
+    staff = []
+    for employee_id in employee_ids:
+        candidate = await session.get(Employee, employee_id)
+        if not candidate or not candidate.is_rtm_staff:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Not an RTM staff employee"
+            )
+        staff.append(candidate)
+    return staff
+
+
 @router.post("", response_model=RequestResponse)
 async def create_request(
     payload: RequestCreate,
@@ -85,12 +109,37 @@ async def create_request(
     if not isinstance(caller, Employee):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only employees can create requests")
 
+    # The markup is re-sanitized here rather than trusted from the editor: the browser copy
+    # is a convenience for whoever is typing, and a hand-written POST never runs it at all.
+    description_html = sanitize_html(payload.description_html)
+    # Derived, never taken from the client: ``description`` is what every Telegram surface
+    # prints, and letting the two arrive independently is how they come to disagree.
+    description = html_to_text(description_html) or payload.description.strip()
+    if not description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Tavsif bo'sh bo'lishi mumkin emas"
+        )
+
+    # De-duplicated with the order kept: the first name picked is the one who leads the job.
+    employee_ids = list(dict.fromkeys(payload.assigned_to_employee_ids))
+    if employee_ids and not caller.can_manage_assignments:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Faqat Boshliq yoki Admin tayinlay oladi",
+        )
+    staff = await _resolve_staff(session, employee_ids)
+
     request = Request(
         requester_employee_id=caller.id,
         category_slug=payload.category_slug,
-        description=payload.description,
+        description=description,
+        description_html=description_html or None,
         status=RequestStatus.NEW.value,
         source=RequestSource.WEB.value,
+        # A deadline is a promise made on RTM's behalf, so only somebody who may hand work
+        # out can make one. Set here rather than after the flush so that the very first
+        # group card already carries it.
+        deadline_at=payload.deadline_at if caller.can_manage_assignments else None,
     )
     session.add(request)
     await session.flush()
@@ -103,15 +152,34 @@ async def create_request(
         )
     )
     await session.flush()
+
+    if employee_ids:
+        # Before the card is published, so the group sees "assigned to X" rather than a
+        # request that appears unclaimed and is silently taken a second later.
+        # set_assignees owns the assignee table, the primary column, the status and the
+        # new-to-assigned history row, so nothing here writes those directly.
+        await set_assignees(session, request, employee_ids)
+        await session.flush()
+
     await session.commit()
 
     await record_for(
         session, caller, action="request.create", target=request.display_number
     )
+    if staff:
+        await record_for(
+            session,
+            caller,
+            action="request.assign",
+            target=request.display_number,
+            detail=", ".join(s.full_name for s in staff),
+        )
     await session.commit()
 
     pool = await get_arq_pool()
     await pool.enqueue_job("publish_request_card", request.id)
+    for employee in staff:
+        await pool.enqueue_job("notify_request_assigned", request.id, employee.id)
 
     await session.refresh(request)
     return RequestResponse.from_request(request)
@@ -201,14 +269,7 @@ async def assign_request(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Kamida bitta xodim tanlang"
         )
 
-    staff = []
-    for employee_id in employee_ids:
-        candidate = await session.get(Employee, employee_id)
-        if not candidate or not candidate.is_rtm_staff:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Not an RTM staff employee"
-            )
-        staff.append(candidate)
+    staff = await _resolve_staff(session, employee_ids)
 
     previously = set(await assignee_ids(session, request.id))
 
@@ -427,6 +488,150 @@ async def return_request(
 
     await session.refresh(request)
     return RequestResponse.from_request(request)
+
+
+async def _purge_request(session: AsyncSession, request: Request) -> list[tuple[int, int]]:
+    """Erase one request and everything hanging off it. Returns its group card posts.
+
+    Deletion is spelled out row by row rather than left to the database, because the
+    foreign keys here have no ``ON DELETE`` behaviour and Postgres would simply refuse.
+    The order is the dependency order: attachments point at messages, so they go first.
+
+    Files on disk go with the rows that name them: a deleted request that leaves its photos
+    behind is a storage leak nobody ever notices.
+
+    **Inventory movements are the one exception** — they are kept and merely unlinked. A
+    part taken out of stock actually left the store, so deleting the record would make the
+    running total wrong for ever. A movement whose job is no longer named is a far smaller
+    problem than a stock figure that no longer matches the shelf.
+    """
+    request_id = request.id
+
+    posts = list(
+        (
+            await session.execute(
+                select(RequestGroupPost).where(RequestGroupPost.request_id == request_id)
+            )
+        ).scalars()
+    )
+    card_posts = [(post.chat_id, post.message_id) for post in posts]
+
+    attachments = list(
+        (
+            await session.execute(
+                select(RequestAttachment).where(RequestAttachment.request_id == request_id)
+            )
+        ).scalars()
+    )
+    storage_root = Path(settings.storage_root)
+    for attachment in attachments:
+        if attachment.file_path:
+            (storage_root / attachment.file_path).unlink(missing_ok=True)
+    # The request's own folder, so a purge of test data does not leave a few hundred empty
+    # directories behind.
+    shutil.rmtree(storage_root / "requests" / str(request_id), ignore_errors=True)
+
+    await session.execute(
+        update(InventoryMovement)
+        .where(InventoryMovement.request_id == request_id)
+        .values(request_id=None)
+    )
+
+    for model in (
+        Rating,
+        RequestAttachment,
+        RequestMessage,
+        RequestAssignee,
+        RequestStatusHistory,
+        RequestGroupPost,
+    ):
+        await session.execute(sql_delete(model).where(model.request_id == request_id))
+
+    await session.delete(request)
+    await session.flush()
+    return card_posts
+
+
+# POST, not DELETE: the production reverse proxy allows GET, POST and HEAD only, so a
+# DELETE would be refused with a 405 by a component this repository cannot configure.
+@router.post("/{request_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_request(
+    request_id: int,
+    actor: User | Employee = Depends(get_admin_actor),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    """Remove a request completely. Admin only, at any status.
+
+    Deliberately not restricted to open requests: the reason this exists is a queue full of
+    requests filed while testing, and those are exactly the ones that were carried through
+    to "completed" to see what completing them did. Returning or cancelling leaves the row
+    in the statistics, which is the opposite of what is wanted here.
+
+    Not offered to Boshliq. Handing work out is a supervisor's job; making the record of it
+    disappear is not.
+    """
+    request = await _get_request_or_404(session, request_id)
+    display_number = request.display_number
+
+    card_posts = await _purge_request(session, request)
+    await record_for(session, actor, action="request.delete", target=display_number)
+    await session.commit()
+
+    # After the commit: the card is gone from the database either way, and a Telegram
+    # failure must not roll back the deletion.
+    pool = await get_arq_pool()
+    for chat_id, message_id in card_posts:
+        await pool.enqueue_job("delete_telegram_message", chat_id, message_id)
+
+
+@router.post("/bulk-delete", response_model=RequestBulkDeleteResult)
+async def bulk_delete_requests(
+    payload: RequestBulkDelete,
+    actor: User | Employee = Depends(get_admin_actor),
+    session: AsyncSession = Depends(get_db),
+) -> RequestBulkDeleteResult:
+    """Delete several requests at once — clearing out test data, one screen at a time.
+
+    Ids that no longer exist are reported rather than raising: two administrators tidying
+    the same list would otherwise take turns failing on rows the other one just removed.
+    """
+    request_ids = list(dict.fromkeys(payload.request_ids))
+    if not request_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Hech qanday murojaat tanlanmadi"
+        )
+    if len(request_ids) > BULK_DELETE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bir vaqtda {BULK_DELETE_LIMIT} tagacha murojaatni o'chirish mumkin",
+        )
+
+    deleted: list[str] = []
+    missing: list[int] = []
+    card_posts: list[tuple[int, int]] = []
+    for request_id in request_ids:
+        request = await session.get(Request, request_id)
+        if request is None:
+            missing.append(request_id)
+            continue
+        deleted.append(request.display_number)
+        card_posts.extend(await _purge_request(session, request))
+
+    if deleted:
+        await record_for(
+            session,
+            actor,
+            action="request.delete",
+            target=f"{len(deleted)} ta murojaat",
+            detail=", ".join(deleted),
+        )
+    await session.commit()
+
+    pool = await get_arq_pool()
+    for chat_id, message_id in card_posts:
+        await pool.enqueue_job("delete_telegram_message", chat_id, message_id)
+
+    return RequestBulkDeleteResult(deleted=len(deleted), missing=missing)
 
 
 @router.get("/{request_id}/messages", response_model=list[RequestMessageResponse])

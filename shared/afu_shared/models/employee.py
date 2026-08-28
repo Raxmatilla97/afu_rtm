@@ -29,6 +29,12 @@ class Employee(TimestampMixin, Base):
 
     image_source_url: Mapped[str | None] = mapped_column(String, nullable=True)
     image_local_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Set when an administrator uploaded the photo by hand. The HEMIS sync re-downloads a
+    #: photo whenever the URL it is offered differs from the one on record, which for a
+    #: hand-uploaded picture is *always* — so without this marker the upload would be
+    #: silently replaced by the HEMIS portrait on the next run, and the administrator would
+    #: have no way to tell it had happened.
+    image_manual_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     is_rtm_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

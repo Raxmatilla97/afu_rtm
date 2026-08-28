@@ -20,8 +20,33 @@ export const requestsApi = {
     return api.get<RequestItem[]>(`/api/requests${qs ? `?${qs}` : ""}`);
   },
   get: (id: number) => api.get<RequestItem>(`/api/requests/${id}`),
-  create: (category_slug: string, description: string) =>
-    api.post<RequestItem>("/api/requests", { category_slug, description }),
+  /**
+   * File a request.
+   *
+   * `description` is the plain reading and `description_html` the formatted one; the
+   * server derives the first from the second anyway, so they cannot end up disagreeing.
+   * The assignment fields are accepted only from a Boshliq or Admin — everybody else's
+   * request arrives unassigned, exactly as before.
+   */
+  create: (payload: {
+    category_slug: string;
+    description: string;
+    description_html?: string | null;
+    assigned_to_employee_ids?: number[];
+    deadline_at?: string | null;
+  }) => api.post<RequestItem>("/api/requests", payload),
+  /**
+   * Admin only. Erases the request, its thread, its files and its group cards.
+   *
+   * A POST to `/delete` rather than an HTTP DELETE: the reverse proxy in front of
+   * production allows GET, POST and HEAD only, and a DELETE never reaches the application.
+   */
+  remove: (id: number) => api.post<void>(`/api/requests/${id}/delete`),
+  /** Admin only. Same erasure, for a screenful of test data at a time. */
+  bulkRemove: (request_ids: number[]) =>
+    api.post<{ deleted: number; missing: number[] }>("/api/requests/bulk-delete", {
+      request_ids,
+    }),
   /** The first id becomes the primary assignee; the rest work alongside them. */
   assign: (id: number, assigned_to_employee_ids: number[], deadline_at: string | null) =>
     api.post<RequestItem>(`/api/requests/${id}/assign`, {

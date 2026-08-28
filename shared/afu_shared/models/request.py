@@ -28,7 +28,14 @@ class Request(TimestampMixin, Base):
     category_slug: Mapped[str] = mapped_column(String(40), ForeignKey("categories.slug"), nullable=False)
     category: Mapped["Category"] = relationship("Category", lazy="selectin")
 
+    #: The plain reading of the request, and the only form Telegram ever sees — every
+    #: bot card, briefing and warning escapes this string. Derived from
+    #: ``description_html`` when the web form was used, so the two cannot disagree.
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    #: What the web form produced, already reduced to the allowlist in
+    #: ``afu_shared.richtext``. Null for everything filed through the bot, which has no
+    #: formatting to offer — the web then falls back to rendering ``description``.
+    description_html: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[str] = mapped_column(String, nullable=False, default=RequestStatus.NEW.value, index=True)
     source: Mapped[str] = mapped_column(String, nullable=False)

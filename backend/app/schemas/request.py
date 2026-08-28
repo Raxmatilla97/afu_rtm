@@ -6,8 +6,24 @@ from afu_shared.media import kind_label
 
 
 class RequestCreate(BaseModel):
+    """A new request, as the web form sends it.
+
+    ``description`` is the plain reading and stays required — it is what Telegram shows.
+    The client sends both forms; the server derives the plain one from the markup anyway,
+    so a hand-written POST carrying only ``description`` is equally valid.
+
+    The assignment fields are honoured only for a caller who may hand work out. They exist
+    so a Boshliq filing something on somebody's behalf can name the person who will do it
+    in the same step, instead of saving the request and then opening it again to assign it.
+    """
+
     category_slug: str
-    description: str
+    description: str = ""
+    #: Formatted description. Sanitized server-side before it is stored; see
+    #: ``afu_shared.richtext``.
+    description_html: str | None = None
+    assigned_to_employee_ids: list[int] = []
+    deadline_at: datetime | None = None
 
 
 class RequestAssign(BaseModel):
@@ -27,6 +43,19 @@ class RequestAssign(BaseModel):
             # De-duplicated, order preserved: the admin's first pick stays the lead.
             return list(dict.fromkeys(self.assigned_to_employee_ids))
         return [self.assigned_to_employee_id] if self.assigned_to_employee_id else []
+
+
+class RequestBulkDelete(BaseModel):
+    """Which requests to erase. Admin only — see the endpoint for why it exists."""
+
+    request_ids: list[int] = []
+
+
+class RequestBulkDeleteResult(BaseModel):
+    #: How many rows actually went. ``missing`` are ids that were already gone, reported
+    #: rather than raised so two administrators tidying the same list do not fight.
+    deleted: int
+    missing: list[int] = []
 
 
 class RequestStatusUpdate(BaseModel):
@@ -179,6 +208,9 @@ class RequestResponse(BaseModel):
     category_slug: str
     category_label: str | None = None
     description: str
+    #: The formatted form, when the request was written on the web. Null for anything filed
+    #: through the bot; the interface then renders ``description`` as plain text.
+    description_html: str | None = None
     status: str
     source: str
     assigned_to_employee_id: int | None
@@ -213,6 +245,7 @@ class RequestResponse(BaseModel):
             category_slug=r.category_slug,
             category_label=r.category.label_uz if r.category else None,
             description=r.description,
+            description_html=r.description_html,
             status=r.status,
             source=r.source,
             assigned_to_employee_id=r.assigned_to_employee_id,

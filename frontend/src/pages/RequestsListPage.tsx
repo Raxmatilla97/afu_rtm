@@ -48,6 +48,10 @@ export function RequestsListPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which rows are ticked for deletion. Admin only, and cleared whenever the list is
+  // refetched — a selection that survives a filter change would delete rows nobody can see.
+  const [selected, setSelected] = useState<number[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     categoriesApi.list().then(setCategories).catch(() => setCategories([]));
@@ -70,6 +74,7 @@ export function RequestsListPage() {
           assigneeEmployeeId: assigneeFilter ? Number(assigneeFilter) : undefined,
         }),
       );
+      setSelected([]);
       setError(null);
     } catch (e) {
       setError(describeError(e));
@@ -83,16 +88,93 @@ export function RequestsListPage() {
   }, [load]);
 
   const filtersActive = Boolean(statusFilter || categoryFilter || assigneeFilter);
+  const allSelected = items.length > 0 && selected.length === items.length;
+
+  function toggleRow(id: number) {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
+    );
+  }
+
+  /**
+   * Erase the ticked requests. Admin only.
+   *
+   * This exists because the queue fills up with requests filed while testing, and there is
+   * no other way to get rid of them: returning and cancelling both leave the row in the
+   * statistics, which is the opposite of what is wanted. The count is spelled out in the
+   * confirmation because that is the number that gets misread, not the button.
+   */
+  async function deleteSelected() {
+    if (selected.length === 0) return;
+    const numbers = items
+      .filter((r) => selected.includes(r.id))
+      .map((r) => r.display_number)
+      .join(", ");
+    if (
+      !window.confirm(
+        `${selected.length} ta murojaat butunlay o'chiriladi:\n${numbers}\n\n` +
+          "Yozishmalar, fayllar va guruhdagi kartochkalar ham o'chadi. " +
+          "Buni ortga qaytarib bo'lmaydi.",
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await requestsApi.bulkRemove(selected);
+      await load();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function deleteOne(request: RequestItem) {
+    if (
+      !window.confirm(
+        `${request.display_number} butunlay o'chiriladi — yozishmalar, fayllar va ` +
+          "guruhdagi kartochka bilan birga. Buni ortga qaytarib bo'lmaydi.",
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await requestsApi.remove(request.id);
+      await load();
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const columns: Column<RequestItem>[] = [
     {
       key: "number",
       header: "№",
       mobile: "title",
+      // The tick box lives inside the number cell rather than in a column of its own: the
+      // responsive table turns every extra column into a labelled line on a phone, and
+      // "Tanlash: ☐" as its own row is worse than a box next to the number it selects.
       cell: (r) => (
-        <Link to={`/requests/${r.id}`} className="font-medium text-brand-700 hover:underline">
-          {r.display_number}
-        </Link>
+        <div className="flex items-center gap-2.5">
+          {isAdmin && (
+            <input
+              type="checkbox"
+              checked={selected.includes(r.id)}
+              onChange={() => toggleRow(r.id)}
+              aria-label={`${r.display_number} ni tanlash`}
+              className="h-4 w-4 shrink-0 accent-red-600"
+            />
+          )}
+          <Link to={`/requests/${r.id}`} className="font-medium text-brand-700 hover:underline">
+            {r.display_number}
+          </Link>
+        </div>
       ),
     },
     { key: "category", header: "Kategoriya", mobile: "meta", cell: (r) => r.category_label },
@@ -115,13 +197,24 @@ export function RequestsListPage() {
       key: "actions",
       header: "Amallar",
       cell: (r) => (
-        <div className="flex justify-end md:justify-start">
+        <div className="flex flex-wrap justify-end gap-1.5 md:justify-start">
           <Link
             to={`/requests/${r.id}`}
             className="inline-flex min-h-9 items-center rounded-full border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-100"
           >
             👁 Ko'rish
           </Link>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => deleteOne(r)}
+              disabled={deleting}
+              title="Murojaatni butunlay o'chirish"
+              className="inline-flex min-h-9 items-center rounded-full border border-red-200 px-3 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              🗑
+            </button>
+          )}
         </div>
       ),
     },
@@ -197,7 +290,44 @@ export function RequestsListPage() {
         )}
 
         <span className="text-sm text-slate-400">{items.length} ta murojaat</span>
+
+        {isAdmin && items.length > 0 && (
+          <label className="flex min-h-11 items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => setSelected(allSelected ? [] : items.map((r) => r.id))}
+              className="h-4 w-4 accent-red-600"
+            />
+            Barchasini tanlash
+          </label>
+        )}
       </div>
+
+      {isAdmin && selected.length > 0 && (
+        // A bar rather than a always-visible button: the destructive action appears only
+        // once something has actually been ticked, and says how many.
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <span className="text-sm text-red-800">
+            <b>{selected.length}</b> ta murojaat tanlandi
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setSelected([])}
+              className="min-h-11 rounded-lg border border-red-200 bg-white px-4 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Tanlovni bekor qilish
+            </button>
+            <button
+              onClick={deleteSelected}
+              disabled={deleting}
+              className="min-h-11 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? "O'chirilmoqda..." : `🗑 ${selected.length} tasini o'chirish`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-slate-400">Yuklanmoqda...</div>

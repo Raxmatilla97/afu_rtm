@@ -52,6 +52,8 @@ export interface Employee {
   image_local_path: string | null;
   /** What HEMIS said the photo is. Null with no local copy = HEMIS never offered one. */
   image_source_url: string | null;
+  /** Set when an administrator uploaded the photo; the HEMIS sync then leaves it alone. */
+  image_manual_at: string | null;
   /** How many requests this person has filed. Only the employee list fills it. */
   request_count: number;
   /** Quick login: whether this account has been claimed, and when. */
@@ -116,7 +118,10 @@ export interface RequestItem {
   assignees: AssigneeCard[];
   category_slug: string;
   category_label: string | null;
+  /** The plain reading — what Telegram shows, and the fallback when there is no markup. */
   description: string;
+  /** Formatted description, when the request was written on the web. Null for bot requests. */
+  description_html: string | null;
   status: string;
   source: string;
   assigned_to_employee_id: number | null;

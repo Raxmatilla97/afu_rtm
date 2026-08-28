@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { requestsApi } from "@/api/requests";
 import { describeError } from "@/api/errors";
 import { employeesApi } from "@/api/reference";
@@ -7,6 +7,7 @@ import { AttachmentGrid } from "@/components/AttachmentView";
 import { DeadlineBanner } from "@/components/DeadlineBanner";
 import { RequestChat } from "@/components/RequestChat";
 import { RequesterCard } from "@/components/RequesterCard";
+import { RichText } from "@/components/RichTextEditor";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAuth } from "@/context/AuthContext";
 import type {
@@ -57,6 +58,7 @@ export function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
   const { session, isAdmin } = useAuth();
+  const navigate = useNavigate();
 
   const [request, setRequest] = useState<RequestItem | null>(null);
   const [attachments, setAttachments] = useState<RequestAttachmentItem[]>([]);
@@ -180,6 +182,30 @@ export function RequestDetailPage() {
     });
   }
 
+  /**
+   * Erase the request entirely. Admin only — see the endpoint for why it exists.
+   *
+   * A typed confirmation rather than a plain OK/Cancel: this is the one action on the page
+   * with nothing behind it, and the request number is right there on screen to copy, so
+   * typing it is a second of work that makes "wrong tab" impossible.
+   */
+  async function handleDelete() {
+    const typed = window.prompt(
+      `${request?.display_number} butunlay o'chiriladi — yozishmalar, fayllar va guruhdagi ` +
+        "kartochka bilan birga. Buni ortga qaytarib bo'lmaydi.\n\n" +
+        `Tasdiqlash uchun murojaat raqamini yozing: ${request?.display_number}`,
+    );
+    if (typed === null) return;
+    if (typed.trim().toUpperCase() !== request?.display_number.toUpperCase()) {
+      setError("Murojaat raqami mos kelmadi — hech narsa o'chirilmadi.");
+      return;
+    }
+    await run(async () => {
+      await requestsApi.remove(requestId);
+      navigate("/requests", { replace: true });
+    });
+  }
+
   async function handleRate(score: number) {
     await run(async () => {
       await requestsApi.rate(requestId, score);
@@ -236,6 +262,16 @@ export function RequestDetailPage() {
               🚫 Qaytarib yuborish
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              title="Murojaatni butunlay o'chirish"
+              className="min-h-11 rounded-lg border border-red-300 px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              🗑 O'chirish
+            </button>
+          )}
         </div>
       </div>
 
@@ -288,7 +324,11 @@ export function RequestDetailPage() {
               )}
             </div>
             <div className="mb-1 text-sm text-slate-400">Tavsif</div>
-            <p className="whitespace-pre-wrap text-slate-800">{request.description}</p>
+            <RichText
+              html={request.description_html}
+              text={request.description}
+              className="text-slate-800"
+            />
             {request.completion_note && (
               <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
                 <div className="mb-1 font-medium">Bajarilgan ish izohi</div>

@@ -50,6 +50,30 @@ export const employeesApi = {
       is_blocked: boolean;
     }>,
   ) => api.post<Employee>(`/api/employees/${id}/roles`, roles),
+  /**
+   * Correct an employee's record by hand. Only the keys passed are written — a field left
+   * out is untouched, and one explicitly set to null is cleared.
+   */
+  update: (
+    id: number,
+    fields: Partial<{
+      full_name: string;
+      department_id: number | null;
+      phone_number: string | null;
+      telegram_username: string | null;
+      recovery_email: string | null;
+      hemis_email: string | null;
+      hemis_phone: string | null;
+      year_of_enter: number | null;
+    }>,
+  ) => api.post<Employee>(`/api/employees/${id}/profile`, fields),
+  uploadPhoto: (id: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.postForm<Employee>(`/api/employees/${id}/photo`, form);
+  },
+  /** Drops the current portrait. HEMIS refills it on the next sync if it has one. */
+  deletePhoto: (id: number) => api.post<Employee>(`/api/employees/${id}/photo/delete`),
 };
 
 export const categoriesApi = {

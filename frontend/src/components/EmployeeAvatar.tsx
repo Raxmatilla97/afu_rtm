@@ -35,10 +35,13 @@ export function EmployeeAvatar({
   imagePath?: string | null;
   size?: keyof typeof SIZES;
 }) {
-  const [failed, setFailed] = useState(false);
+  // Which path failed, not merely "something failed". An administrator who uploads a new
+  // portrait over one whose file was missing gets a different path back, and a plain
+  // boolean would keep showing their initials until the page was reloaded.
+  const [failedPath, setFailedPath] = useState<string | null>(null);
   // image_local_path is stored as "employees/<id>.jpg" and the backend serves that tree
   // under /media/.
-  const src = imagePath && !failed ? `/media/${imagePath}` : null;
+  const src = imagePath && imagePath !== failedPath ? `/media/${imagePath}` : null;
 
   if (src) {
     return (
@@ -46,7 +49,7 @@ export function EmployeeAvatar({
         src={src}
         alt={name}
         loading="lazy"
-        onError={() => setFailed(true)}
+        onError={() => setFailedPath(imagePath ?? null)}
         className={`${SIZES[size]} shrink-0 rounded-full border border-slate-200 object-cover`}
       />
     );
