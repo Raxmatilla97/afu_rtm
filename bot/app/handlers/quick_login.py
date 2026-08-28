@@ -30,6 +30,7 @@ from afu_shared.models import Employee
 from afu_shared.passwords import mask_email
 from app.callbacks import QuickCB
 from app.keyboards.common import contact_request_keyboard
+from app.middlewares.activity import mark
 from app.screens import auth as auth_screens
 from app.screens import menu as menu_screens
 from app.states.quick_login import QuickLoginStates
@@ -105,6 +106,7 @@ async def _finish_login(
     """Link this Telegram account to the employee and show them where they landed."""
     await quick_login.link_telegram(session, employee, telegram_user_id)
     await session.commit()
+    mark("login.quick", target=employee.employee_id_number, employee=employee)
     await state.clear()
 
     # The reset instructions have done their job, and the transients from failed attempts

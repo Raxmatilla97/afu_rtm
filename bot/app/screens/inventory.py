@@ -10,6 +10,7 @@ Two flows live here, and both are optional detours off the completion path:
 """
 
 from afu_shared.models import InventoryCategory, InventoryItem
+from afu_shared.telegram_text import esc
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.callbacks import AsgCB, InvCB
@@ -143,7 +144,7 @@ def build_item_screen(
     rows = [
         [
             InlineKeyboardButton(
-                text=f"{item.name} · {item.quantity} {item.unit}",
+                text=f"{esc(item.name)} · {item.quantity} {item.unit}",
                 callback_data=InvCB(act="pick", rid=rid, iid=item.id, slug=category.slug).pack(),
             )
         ]
@@ -219,7 +220,7 @@ def build_quantity_screen(rid: int, item: InventoryItem) -> Screen:
 
     return Screen(
         text=(
-            f"🔢 <b>{item.name}</b>\n"
+            f"🔢 <b>{esc(item.name)}</b>\n"
             f"Omborda: <b>{item.quantity}</b> {item.unit}\n\n"
             "Nechta ishlatildi?"
         ),

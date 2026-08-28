@@ -10,6 +10,7 @@ from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Request, RequestAssignee, RequestMessage
+from afu_shared.telegram_text import esc
 from app.callbacks import AsgCB, InvCB, Nav
 from app.keyboards.common import menu_button
 from app.services.attachments import attachments_for_request
@@ -109,25 +110,25 @@ async def build_detail(
 
     lines = [
         f"<b>{request.display_number}</b> · {status_label(request.status)}",
-        f"Kategoriya: {request.category.label_uz}",
-        f"Murojaatchi: {requester.full_name if requester else '—'}",
+        f"Kategoriya: {esc(request.category.label_uz)}",
+        f"Murojaatchi: {esc(requester.full_name) if requester else '—'}",
     ]
 
     others = [
         row for row in await assignees_of(session, rid) if row.employee_id != employee.id
     ]
     if others:
-        names = ", ".join(row.employee.full_name for row in others if row.employee)
+        names = ", ".join(esc(row.employee.full_name) for row in others if row.employee)
         lines.append(f"🤝 Hamkorlar: {names}")
     if requester and requester.department:
-        lines.append(f"Bo'lim: {requester.department.name}")
+        lines.append(f"Bo'lim: {esc(requester.department.name)}")
     if requester and requester.phone_number:
-        lines.append(f"Telefon: {requester.phone_number}")
+        lines.append(f"Telefon: {esc(requester.phone_number)}")
     lines.append(f"Muddat: {_fmt_dt(request.deadline_at)}")
 
     if request.status == RequestStatus.WAITING.value:
         lines.append(
-            f"\n⏸ <b>Kutilmoqda:</b> {request.waiting_reason or '—'}"
+            f"\n⏸ <b>Kutilmoqda:</b> {esc(request.waiting_reason, default='—')}"
             f"\nKutish muddati: {_fmt_dt(request.waiting_until)}"
         )
 
@@ -137,16 +138,16 @@ async def build_detail(
         # not an explanation anybody can act on.
         lines.append("")
         lines.append(f"🚫 <b>Qaytarib yuborilgan:</b> {_fmt_dt(request.returned_at)}")
-        lines.append(f"Sabab: {request.return_reason or '—'}")
+        lines.append(f"Sabab: {esc(request.return_reason, default='—')}")
 
-    lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
+    lines.append(f"\n<b>Tavsif:</b>\n{esc(request.description)}")
 
     used = await used_on_request(session, rid)
     if used:
         lines.append("\n🔧 <b>Ishlatilgan inventar:</b>")
         for movement in used:
             item = movement.item
-            lines.append(f"• {item.name} — {abs(movement.delta)} {item.unit}")
+            lines.append(f"• {esc(item.name)} — {abs(movement.delta)} {item.unit}")
 
     files = await attachments_for_request(session, rid)
     if files:

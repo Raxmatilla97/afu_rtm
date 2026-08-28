@@ -1,3 +1,4 @@
+from afu_shared.models.activity import ActivityEvent
 from afu_shared.models.base import Base
 from afu_shared.models.category import Category
 from afu_shared.models.department import Department
@@ -18,11 +19,13 @@ from afu_shared.models.request_attachment import RequestAttachment
 from afu_shared.models.request_group_post import RequestGroupPost
 from afu_shared.models.request_message import RequestMessage
 from afu_shared.models.request_status_history import RequestStatusHistory
+from afu_shared.models.site_setting import KEY_SITE, KEY_SMTP, SiteSetting
 from afu_shared.models.soft import SoftAsset, SoftCategory
 from afu_shared.models.telegram_link_token import TelegramLinkToken
 from afu_shared.models.user import User
 
 __all__ = [
+    "ActivityEvent",
     "Base",
     "Category",
     "Department",
@@ -41,6 +44,9 @@ __all__ = [
     "RequestGroupPost",
     "RequestMessage",
     "RequestStatusHistory",
+    "SiteSetting",
+    "KEY_SITE",
+    "KEY_SMTP",
     "SoftAsset",
     "SoftCategory",
     "TelegramLinkToken",

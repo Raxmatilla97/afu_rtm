@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Employee
+from afu_shared.telegram_text import esc
 from app.keyboards.common import remove_keyboard
 from app.screens import menu
 from app.ui.anchor import render
@@ -82,7 +83,7 @@ async def process_contact(
     # Drop the reply keyboard: from here on everything is inline on the anchor.
     await send_transient(
         bot, redis, arq_pool, message.chat.id,
-        f"✅ Rahmat, {employee.full_name}! Ro'yxatdan o'tish yakunlandi.",
+        f"✅ Rahmat, {esc(employee.full_name)}! Ro'yxatdan o'tish yakunlandi.",
         reply_markup=remove_keyboard(),
     )
     await render(bot, redis, message.chat.id, menu.build_menu(employee), force_new=True)

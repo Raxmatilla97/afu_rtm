@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.assignments import assignee_ids, set_assignees
+from afu_shared.activity import record_for
 from afu_shared.enums import AttachmentKind, MessageVisibility, RequestSource, RequestStatus
 from afu_shared.models import (
     Employee,
@@ -22,6 +23,7 @@ from afu_shared.models import (
 from afu_shared.settings import settings
 from app.arq_pool import get_arq_pool
 from app.deps import get_current_caller, get_db
+from app.downloads import serve_headers
 from app.schemas.rating import RatingCreate, RatingResponse
 from app.schemas.request import (
     RequestAssign,
@@ -101,6 +103,11 @@ async def create_request(
         )
     )
     await session.flush()
+    await session.commit()
+
+    await record_for(
+        session, caller, action="request.create", target=request.display_number
+    )
     await session.commit()
 
     pool = await get_arq_pool()
@@ -225,6 +232,13 @@ async def assign_request(
             note="Tayinlandi: " + ", ".join(s.full_name for s in staff),
         )
     )
+    await record_for(
+        session,
+        caller,
+        action="request.assign",
+        target=request.display_number,
+        detail=", ".join(s.full_name for s in staff),
+    )
     await session.flush()
 
     # Commit before the jobs are queued: the worker reads the request back from the database
@@ -316,6 +330,9 @@ async def complete_request(
             changed_by_user_id=caller.id if isinstance(caller, User) else None,
         )
     )
+    await record_for(
+        session, caller, action="request.complete", target=request.display_number
+    )
     await session.flush()
     await session.commit()
 
@@ -391,6 +408,9 @@ async def return_request(
             changed_by_user_id=caller.id if isinstance(caller, User) else None,
             note=reason,
         )
+    )
+    await record_for(
+        session, caller, action="request.return", target=request.display_number, detail=reason
     )
     await session.flush()
     # Commit before queueing: the worker re-reads the request in its own session and would
@@ -537,17 +557,10 @@ async def download_attachment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File missing on disk")
 
     name = attachment.original_filename or full_path.name
-    disposition = "attachment" if download else "inline"
-    return FileResponse(
-        full_path,
-        media_type=attachment.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'{disposition}; filename="{_ascii_filename(name)}"'},
-    )
-
-
-def _ascii_filename(name: str) -> str:
-    """Content-Disposition is a latin-1 header; a Cyrillic filename would break it."""
-    return name.encode("ascii", "replace").decode("ascii").replace('"', "_")
+    # The stored content type is whatever the uploader's browser claimed, so the decision
+    # about what may render inline is made by us, not by them. See app/downloads.py.
+    media_type, headers = serve_headers(attachment.content_type, name, want_download=download)
+    return FileResponse(full_path, media_type=media_type, headers=headers)
 
 
 @router.post("/{request_id}/attachments", response_model=RequestAttachmentResponse)

@@ -15,10 +15,18 @@ export const departmentsApi = {
 };
 
 export const employeesApi = {
-  list: (opts?: { q?: string; isRtmStaff?: boolean }) => {
+  list: (opts?: {
+    q?: string;
+    isRtmStaff?: boolean;
+    departmentId?: number;
+    /** "name" (default) or "requests" — most requests filed first. */
+    sort?: "name" | "requests";
+  }) => {
     const params = new URLSearchParams();
     if (opts?.q) params.set("q", opts.q);
     if (opts?.isRtmStaff !== undefined) params.set("is_rtm_staff", String(opts.isRtmStaff));
+    if (opts?.departmentId !== undefined) params.set("department_id", String(opts.departmentId));
+    if (opts?.sort) params.set("sort", opts.sort);
     const qs = params.toString();
     return api.get<Employee[]>(`/api/employees${qs ? `?${qs}` : ""}`);
   },

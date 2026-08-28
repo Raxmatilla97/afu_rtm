@@ -1,6 +1,7 @@
 """RTM Soft: the driver and software shelf, as seen from the bot."""
 
 from afu_shared.models import SoftAsset, SoftCategory
+from afu_shared.telegram_text import esc
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.callbacks import Nav, SoftCB
@@ -105,7 +106,7 @@ def build_asset_screen(
         )
         lines.append(f"• <b>{asset.title}</b>" + (f"\n  <i>{detail}</i>" if detail else ""))
         if asset.description:
-            lines.append(f"  {asset.description}")
+            lines.append(f"  {esc(asset.description)}")
     lines.append("\n<i>Yuklab olish uchun nomini bosing.</i>")
 
     return Screen(text="\n".join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows))

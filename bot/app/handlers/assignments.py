@@ -13,9 +13,11 @@ from afu_shared.assignments import OPEN_FOR_PICKUP, assignee_ids, is_assigned
 from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.models import Employee, Request, RequestStatusHistory
+from afu_shared.telegram_text import esc
 from app.callbacks import AsgCB, InvCB
 from app.filters.media import HAS_MEDIA
 from app.handlers.inventory import apply_picks
+from app.middlewares.activity import mark
 from app.screens import assignments as screens
 from app.screens import inventory as inventory_screens
 from app.services.attachments import attachments_for_request
@@ -144,6 +146,7 @@ async def start_work(
     await session.flush()
 
     await session.commit()
+    mark("request.start", target=request.display_number)
     await arq_pool.enqueue_job("refresh_request_cards", request.id)
 
     screen = await screens.build_detail(session, employee, request.id, callback_data.page)
@@ -286,6 +289,7 @@ async def finish_completion(
 
     # Commit before queueing: the worker reads the report back by id in its own session.
     await session.commit()
+    mark("request.complete", target=request.display_number)
     await arq_pool.enqueue_job("send_completion_notification", request.id, report_id)
 
     team = await assignee_ids(session, request.id)
@@ -295,7 +299,7 @@ async def finish_completion(
         "refresh_request_cards",
         request.id,
         f"✅ <b>{request.display_number}</b> bajarildi — "
-        f"<b>{employee.full_name}</b>{credited}.{parts}",
+        f"<b>{esc(employee.full_name)}</b>{credited}.{parts}",
     )
 
     screen = await screens.build_list(session, employee, page)

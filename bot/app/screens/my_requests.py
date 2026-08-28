@@ -13,6 +13,7 @@ from afu_shared.enums import MessageVisibility, RequestStatus
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Rating, Request, RequestMessage
+from afu_shared.telegram_text import esc
 from app.callbacks import Nav, ReqCB
 from app.keyboards.common import menu_button
 from app.services.attachments import attachments_for_request
@@ -101,26 +102,26 @@ async def build_detail(
 
     lines = [
         f"<b>{request.display_number}</b> · {status_label(request.status)}",
-        f"Kategoriya: {request.category.label_uz}",
+        f"Kategoriya: {esc(request.category.label_uz)}",
         f"Yuborilgan: {_fmt_dt(request.created_at)}",
     ]
     if assignee:
-        lines.append(f"Mas'ul: {assignee.full_name}")
+        lines.append(f"Mas'ul: {esc(assignee.full_name)}")
     if request.deadline_at:
         lines.append(f"Muddat: {_fmt_dt(request.deadline_at)}")
-    lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
+    lines.append(f"\n<b>Tavsif:</b>\n{esc(request.description)}")
 
     if request.status == RequestStatus.COMPLETED.value:
         lines.append(f"\n✅ <b>Bajarildi:</b> {_fmt_dt(request.completed_at)}")
         if request.completion_note:
-            lines.append(f"Izoh: {request.completion_note}")
+            lines.append(f"Izoh: {esc(request.completion_note)}")
 
     if request.status == RequestStatus.RETURNED.value:
         # The reporter is the person this state exists for: they are the only one who can
         # do anything about it, and what they need is the sentence explaining what to fix.
         lines.append("")
         lines.append(f"🚫 <b>Qaytarib yuborilgan:</b> {_fmt_dt(request.returned_at)}")
-        lines.append(f"Sabab: {request.return_reason or '—'}")
+        lines.append(f"Sabab: {esc(request.return_reason, default='—')}")
         lines.append("Kerak bo'lsa, izohni hisobga olib yangi murojaat yuboring.")
 
     files = await attachments_for_request(session, rid, include_internal=False)
@@ -132,7 +133,7 @@ async def build_detail(
         lines.append("\n<b>Oxirgi xabarlar:</b>")
         for msg, author in reversed(messages):
             who = "Siz" if author and author.id == employee.id else (author.full_name if author else "RTM")
-            lines.append(f"• <i>{who}:</i> {_ellipsis(_preview_of(msg), 80)}")
+            lines.append(f"• <i>{esc(who)}:</i> {_ellipsis(_preview_of(msg), 80)}")
 
     rating = (
         await session.execute(select(Rating).where(Rating.request_id == rid))

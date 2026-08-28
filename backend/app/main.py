@@ -16,6 +16,21 @@ for _name in ("employee_client_id", "employee_client_secret", "public_base_url")
     if not getattr(settings, _name):
         logger.warning("Setting %s is empty — HEMIS OAuth login will not work", _name.upper())
 
+# Refusing to start is the correct response to this one. Every session in the system — the
+# panel admin's included — is a JWT signed with this value, so leaving the shipped default
+# in place means anyone who has read this repository can mint an admin cookie. A warning in
+# a log nobody reads is not a defence; the service simply must not run.
+if settings.jwt_secret in ("", "change_me"):
+    raise RuntimeError(
+        "JWT_SECRET is unset or still the default. Set a long random value in .env before "
+        "starting: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+    )
+if len(settings.jwt_secret) < 32:
+    logger.warning(
+        "JWT_SECRET is only %s characters. Use at least 32 — it signs every session cookie.",
+        len(settings.jwt_secret),
+    )
+
 app = FastAPI(title="AFU RTM Helpdesk API")
 
 origins = [o.strip() for o in settings.backend_cors_origins.split(",") if o.strip()]

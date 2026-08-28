@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from afu_shared.models import Employee, SoftAsset, SoftCategory, User
 from afu_shared.settings import settings
 from app.deps import get_current_caller, get_db
+from app.downloads import serve_headers
 from app.schemas.soft import SoftAssetResponse, SoftAssetUpdate, SoftCategoryResponse
 
 router = APIRouter(prefix="/soft", tags=["soft"])
@@ -187,14 +188,7 @@ async def download_asset(
 
     asset.download_count += 1
     name = asset.original_filename or full_path.name
-    return FileResponse(
-        full_path,
-        media_type=asset.content_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": (
-                'attachment; filename="'
-                + name.encode("ascii", "replace").decode("ascii").replace('"', "_")
-                + '"'
-            )
-        },
-    )
+    # Always a download: these are drivers and installers, and want_download=True also
+    # pins the type to octet-stream so an uploaded .html can never render on our origin.
+    media_type, headers = serve_headers(asset.content_type, name, want_download=True)
+    return FileResponse(full_path, media_type=media_type, headers=headers)

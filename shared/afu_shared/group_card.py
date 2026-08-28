@@ -19,6 +19,7 @@ from afu_shared.enums import RequestStatus
 from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Rating, Request, RequestAssignee, RequestAttachment
 from afu_shared.settings import settings
+from afu_shared.telegram_text import esc
 
 RULE = "━━━━━━━━━━━━━━"
 
@@ -97,19 +98,19 @@ def build_card_text(
         OVERDUE_HEADLINE if overdue else _HEADLINES.get(request.status, "📋 <b>MUROJAAT</b>"),
         RULE,
         f"🎫 <b>{request.display_number}</b> · "
-        f"{request.category.label_uz if request.category else '—'}",
+        f"{esc(request.category.label_uz if request.category else None, default='—')}",
         "",
     ]
 
     if requester:
-        lines.append(f"👤 <b>{requester.full_name}</b>")
+        lines.append(f"👤 <b>{esc(requester.full_name)}</b>")
         if requester.department:
-            lines.append(f"🏢 {requester.department.name}")
+            lines.append(f"🏢 {esc(requester.department.name)}")
         if requester.phone_number:
-            lines.append(f"📞 <code>{requester.phone_number}</code>")
+            lines.append(f"📞 <code>{esc(requester.phone_number)}</code>")
         lines.append("")
 
-    lines.append(f"📝 {request.description}")
+    lines.append(f"📝 {esc(request.description)}")
 
     if attachments:
         lines.append(f"\n📎 {describe_attachments(attachments)}")
@@ -119,7 +120,7 @@ def build_card_text(
         lines.append("🛠 <b>Bajaruvchilar:</b>")
         for index, row in enumerate(assignees):
             badge = _MEDALS[index] if index < len(_MEDALS) else "•"
-            name = row.employee.full_name if row.employee else f"#{row.employee_id}"
+            name = esc(row.employee.full_name) if row.employee else f"#{row.employee_id}"
             lead = " <i>(mas'ul)</i>" if row.is_primary else ""
             lines.append(f"{badge} {name}{lead}")
     elif request.status == RequestStatus.CANCELLED.value:
@@ -144,7 +145,7 @@ def build_card_text(
         # On the card whether or not anybody had taken the job: the group is where the next
         # person would otherwise pick up a request RTM has already sent back.
         lines.append("")
-        lines.append(f"🚫 <b>Qaytarilgan sabab:</b> {request.return_reason or '—'}")
+        lines.append(f"🚫 <b>Qaytarilgan sabab:</b> {esc(request.return_reason, default='—')}")
         lines.append(f"<i>{_fmt_dt(request.returned_at)}</i>")
 
     if request.status == RequestStatus.COMPLETED.value:
@@ -153,7 +154,7 @@ def build_card_text(
         if spent:
             lines.append(f"⏱ Sarflangan vaqt: <b>{spent}</b>")
         if request.completion_note:
-            lines.append(f"💬 {request.completion_note}")
+            lines.append(f"💬 {esc(request.completion_note)}")
 
     scores = [r.score for r in (ratings or [])]
     if scores:

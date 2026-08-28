@@ -21,6 +21,7 @@ from afu_shared.group_card import format_duration
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.message_links import remember_many
+from afu_shared.telegram_text import esc
 from afu_shared.models import (
     Employee,
     Request,
@@ -189,17 +190,17 @@ async def notify_request_assigned(
             f"Kategoriya: {request.category.label_uz if request.category else '—'}",
         ]
         if requester:
-            lines.append(f"\n👤 <b>Murojaatchi:</b> {requester.full_name}")
+            lines.append(f"\n👤 <b>Murojaatchi:</b> {esc(requester.full_name)}")
             if requester.department:
-                lines.append(f"Bo'lim: {requester.department.name}")
+                lines.append(f"Bo'lim: {esc(requester.department.name)}")
             if requester.phone_number:
-                lines.append(f"Telefon: {requester.phone_number}")
+                lines.append(f"Telefon: {esc(requester.phone_number)}")
             if requester.telegram_username:
-                lines.append(f"Telegram: @{requester.telegram_username}")
+                lines.append(f"Telegram: @{esc(requester.telegram_username)}")
         if colleagues:
             lines.append(f"\n🤝 <b>Hamkorlar:</b> {', '.join(colleagues)}")
         lines.append(f"\n⏰ Muddat: {_fmt_dt(request.deadline_at)}")
-        lines.append(f"\n<b>Tavsif:</b>\n{request.description}")
+        lines.append(f"\n<b>Tavsif:</b>\n{esc(request.description)}")
         if attachments:
             lines.append(f"\n📎 <b>Materiallar:</b> {describe_attachments(attachments)}")
             lines.append("<i>Fayllar shu xabardan keyin yuboriladi.</i>")
@@ -270,9 +271,9 @@ async def send_completion_notification(
             "🎉🟢 <b>BAJARILDI!</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             f"✅ <b>{request.display_number}</b> — murojaatingiz hal qilindi.\n\n"
-            f"📝 {request.description}\n\n"
+            f"📝 {esc(request.description)}\n\n"
             f"🛠 <b>Bajardi:</b> {', '.join(team)}\n"
-            f"💬 <b>Izoh:</b> {request.completion_note or '—'}\n"
+            f"💬 <b>Izoh:</b> {esc(request.completion_note, default='—')}\n"
         )
         if spent := format_duration(request.assigned_at or request.created_at, request.completed_at):
             text += f"⏱ <b>Sarflangan vaqt:</b> {spent}\n"
@@ -322,12 +323,15 @@ async def notify_request_message(
         author = (
             await session.get(Employee, author_employee_id) if author_employee_id else None
         )
-        author_name = author.full_name if author else "RTM administratori"
+        author_name = esc(author.full_name) if author else "RTM administratori"
         display_number = request.display_number
         internal = message.visibility == MessageVisibility.INTERNAL.value
 
         attachments = await _message_attachments(session, message.id)
-        body = message.body or (
+        # Escaped here, once, rather than at each of the three text= lines below: this is
+        # the only place the body enters the message, and a "<" typed by a reporter would
+        # otherwise make Telegram refuse to deliver anything at all.
+        body = esc(message.body) or (
             describe_attachments(attachments) if attachments else "—"
         )
 
@@ -428,11 +432,11 @@ async def notify_request_waiting(ctx: dict, request_id: int, employee_id: int | 
         text = (
             "⏸ <b>Murojaatingiz vaqtincha kutish holatida</b>\n\n"
             f"🎫 <b>{request.display_number}</b>\n\n"
-            f"📝 {request.description}\n\n"
-            f"<b>Sabab:</b> {request.waiting_reason or 'Kerakli qism omborda yo‘q'}\n"
+            f"📝 {esc(request.description)}\n\n"
+            f"<b>Sabab:</b> {esc(request.waiting_reason, default='Kerakli qism omborda yo‘q')}\n"
             f"⏳ <b>Taxminiy muddat:</b> {until}\n\n"
             "Murojaatingiz bekor qilinmadi va unutilmadi — kerakli qism kelishi bilan "
-            f"{staff.full_name if staff else 'RTM xodimi'} ishni davom ettiradi va sizga "
+            f"{esc(staff.full_name) if staff else 'RTM xodimi'} ishni davom ettiradi va sizga "
             "xabar beramiz."
             + REPLY_HINT
         )
@@ -461,7 +465,7 @@ async def notify_request_returned(ctx: dict, request_id: int) -> None:
             logger.error("notify_request_returned: request %s not found", request_id)
             return
 
-        reason = request.return_reason or "—"
+        reason = esc(request.return_reason, default="—")
         requester = await session.get(Employee, request.requester_employee_id)
         requester_chat = requester.telegram_user_id if requester else None
 
@@ -475,7 +479,7 @@ async def notify_request_returned(ctx: dict, request_id: int) -> None:
             "🚫 <b>Murojaatingiz qaytarib yuborildi</b>\n"
             "━━━━━━━━━━━━━━\n\n"
             f"🎫 <b>{request.display_number}</b>\n\n"
-            f"📝 {request.description}\n\n"
+            f"📝 {esc(request.description)}\n\n"
             f"<b>Sabab:</b> {reason}\n\n"
             "Bu murojaat bo'yicha ish olib borilmaydi. Yuqoridagi izohni hisobga olib "
             "yangi murojaat yuborishingiz mumkin — savolingiz bo'lsa, shu xabarga javob "

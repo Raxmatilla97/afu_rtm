@@ -25,6 +25,7 @@ from afu_shared.inventory import (
     items_in_category,
 )
 from afu_shared.models import Employee, InventoryCategory, InventoryItem, Request, RequestStatusHistory
+from afu_shared.telegram_text import esc
 from app.callbacks import InvCB
 from app.screens import assignments as assignment_screens
 from app.screens import inventory as screens
@@ -200,7 +201,7 @@ async def set_quantity(
         await state.update_data(pending_iid=item.id, rid=callback_data.rid)
         await send_transient(
             bot, redis, arq_pool, callback.message.chat.id,
-            f"🔢 <b>{item.name}</b> — nechta ishlatildi? Raqam yozing "
+            f"🔢 <b>{esc(item.name)}</b> — nechta ishlatildi? Raqam yozing "
             f"(omborda {item.quantity} {item.unit}).",
             ttl=120,
         )
@@ -290,7 +291,7 @@ async def apply_picks(
                 "Request %s: not enough %s left to record %s", request.id, item.name, pick["qty"]
             )
             continue
-        lines.append(f"{item.name} — {pick['qty']} {item.unit}")
+        lines.append(f"{esc(item.name)} — {pick['qty']} {item.unit}")
     return lines
 
 

@@ -73,6 +73,7 @@ export function Layout() {
           { to: "/departments", label: "Bo'limlar", icon: "🏢" },
           { to: "/hemis-sync", label: "HEMIS sinxronizatsiya", icon: "🔄" },
           { to: "/admin-notes", label: "Admin uchun eslatmalar", icon: "📌" },
+          { to: "/settings", label: "Sozlamalar va kuzatuv", icon: "⚙️" },
         ]
       : []),
   ];

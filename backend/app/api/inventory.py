@@ -29,6 +29,7 @@ from afu_shared.models import (
 )
 from afu_shared.settings import settings
 from app.deps import get_current_caller, get_db
+from app.downloads import serve_headers
 from app.schemas.inventory import (
     InventoryAttachmentResponse,
     InventoryCategoryResponse,
@@ -428,15 +429,5 @@ async def download_attachment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fayl topilmadi")
 
     name = attachment.original_filename or full_path.name
-    disposition = "attachment" if download else "inline"
-    return FileResponse(
-        full_path,
-        media_type=attachment.content_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": (
-                f'{disposition}; filename="'
-                + name.encode("ascii", "replace").decode("ascii").replace('"', "_")
-                + '"'
-            )
-        },
-    )
+    media_type, headers = serve_headers(attachment.content_type, name, want_download=download)
+    return FileResponse(full_path, media_type=media_type, headers=headers)

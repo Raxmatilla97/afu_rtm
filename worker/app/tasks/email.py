@@ -17,14 +17,17 @@ from email.message import EmailMessage
 from afu_shared.db import session_scope
 from afu_shared.models import Employee
 from afu_shared.settings import settings
+from afu_shared.site_settings import smtp_config
 
 logger = logging.getLogger(__name__)
 
 
-def _build_message(*, to_address: str, full_name: str, link: str, ttl_minutes: int) -> EmailMessage:
+def _build_message(
+    *, to_address: str, full_name: str, link: str, ttl_minutes: int, from_address: str
+) -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = "RTM Murojaatlar — parolni tiklash"
-    message["From"] = settings.smtp_from
+    message["From"] = from_address
     message["To"] = to_address
 
     text = (
@@ -62,20 +65,26 @@ color:#0f172a;line-height:1.6">
     return message
 
 
-def _send_blocking(message: EmailMessage) -> None:
-    if settings.smtp_starttls:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
+def _send_blocking(message: EmailMessage, config: dict) -> None:
+    """Deliver one message. ``config`` comes from the panel, falling back to the env vars."""
+    host = config["host"]
+    port = int(config.get("port") or 587)
+    user = config.get("user") or ""
+    password = config.get("password") or ""
+
+    if config.get("starttls", True):
+        with smtplib.SMTP(host, port, timeout=30) as smtp:
             smtp.ehlo()
             smtp.starttls()
-            if settings.smtp_user:
-                smtp.login(settings.smtp_user, settings.smtp_password)
+            if user:
+                smtp.login(user, password)
             smtp.send_message(message)
         return
 
     # Implicit TLS (usually port 465).
-    with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
-        if settings.smtp_user:
-            smtp.login(settings.smtp_user, settings.smtp_password)
+    with smtplib.SMTP_SSL(host, port, timeout=30) as smtp:
+        if user:
+            smtp.login(user, password)
         smtp.send_message(message)
 
 
@@ -92,15 +101,18 @@ async def send_password_reset_email(ctx: dict, employee_id: int, token: str) -> 
             return
         to_address = employee.recovery_email
         full_name = employee.full_name
+        # Read inside the session: the panel may have changed the mail server since this
+        # job was queued, and the newer settings are the ones worth trying.
+        config = await smtp_config(session)
 
     if not to_address:
         logger.error("send_password_reset_email: employee %s has no recovery email", employee_id)
         return
 
-    if not settings.smtp_host:
+    if not config.get("host"):
         logger.error(
-            "SMTP_HOST is not configured — the reset link for employee %s could not be sent. "
-            "Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD in .env.",
+            "No SMTP host configured — the reset link for employee %s could not be sent. "
+            "Set it in the admin panel (Sozlamalar va kuzatuv) or as SMTP_HOST in .env.",
             employee_id,
         )
         return
@@ -110,10 +122,11 @@ async def send_password_reset_email(ctx: dict, employee_id: int, token: str) -> 
         full_name=full_name,
         link=f"{settings.public_base_url.rstrip('/')}/reset-password?token={token}",
         ttl_minutes=settings.password_reset_ttl_minutes,
+        from_address=config.get("from_address") or settings.smtp_from,
     )
 
     try:
-        await asyncio.to_thread(_send_blocking, message)
+        await asyncio.to_thread(_send_blocking, message, config)
     except (smtplib.SMTPException, OSError) as exc:
         # Named rather than swallowed: "the letter never arrived" is otherwise indis-
         # tinguishable from a typo in the address, and the two have different fixes.
@@ -121,3 +134,37 @@ async def send_password_reset_email(ctx: dict, employee_id: int, token: str) -> 
         return
 
     logger.info("Password reset email sent for employee %s", employee_id)
+
+
+async def send_test_email(ctx: dict, to_address: str) -> None:
+    """Prove the mail settings work, from the panel, before somebody needs them.
+
+    Deliberately its own job rather than a synchronous send inside the request: SMTP can
+    take half a minute to fail, and an admin watching a spinner cannot tell a slow server
+    from a hung one.
+    """
+    async with session_scope() as session:
+        config = await smtp_config(session)
+
+    if not config.get("host"):
+        logger.error("send_test_email: no SMTP host configured")
+        return
+
+    message = EmailMessage()
+    message["Subject"] = "RTM Murojaatlar — sinov xati"
+    message["From"] = config.get("from_address") or settings.smtp_from
+    message["To"] = to_address
+    message.set_content(
+        "Bu — RTM Murojaatlar tizimidan yuborilgan sinov xati.\n\n"
+        "Agar shu xatni olgan bo'lsangiz, pochta sozlamalari to'g'ri ishlayapti va "
+        "parolni tiklash havolalari ham yetib boradi.\n\n"
+        "RTM — Alfraganus University"
+    )
+
+    try:
+        await asyncio.to_thread(_send_blocking, message, config)
+    except (smtplib.SMTPException, OSError) as exc:
+        logger.error("Test email to %s failed: %r", to_address, exc)
+        return
+
+    logger.info("Test email sent to %s", to_address)

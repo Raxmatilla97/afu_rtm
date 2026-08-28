@@ -3,6 +3,7 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from afu_shared.models import Employee
+from afu_shared.telegram_text import esc
 from app.callbacks import Nav, SoftCB
 from app.keyboards.common import menu_button
 from app.ui.anchor import Screen
@@ -10,8 +11,8 @@ from app.ui.anchor import Screen
 
 def build_menu(employee: Employee) -> Screen:
     text = (
-        f"👤 <b>{employee.full_name}</b>\n"
-        f"{employee.department.name if employee.department else 'Bo‘lim ko‘rsatilmagan'}\n\n"
+        f"👤 <b>{esc(employee.full_name)}</b>\n"
+        f"{esc(employee.department.name) if employee.department else 'Bo‘lim ko‘rsatilmagan'}\n\n"
         "Nima qilmoqchisiz?"
     )
 

@@ -19,6 +19,7 @@ from afu_shared.models import (
 )
 from app.callbacks import CatCB, FlowCB
 from app.filters.media import HAS_MEDIA
+from app.middlewares.activity import mark
 from app.screens import new_request as screens
 from app.states.new_request import NewRequestStates
 from app.ui.anchor import render
@@ -157,6 +158,7 @@ async def _announce(session: AsyncSession, arq_pool: ArqRedis, request: Request)
     there yet.
     """
     await session.commit()
+    mark("request.create", target=request.display_number)
     await arq_pool.enqueue_job("publish_request_card", request.id)
 
 

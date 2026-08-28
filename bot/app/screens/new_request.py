@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.models import Category
+from afu_shared.telegram_text import esc
 from app.callbacks import CatCB, FlowCB, Nav, ReqCB
 from app.keyboards.common import menu_button
 from app.ui.anchor import Screen
@@ -47,7 +48,7 @@ def build_attachment_choice_screen(category_label: str, description: str) -> Scr
     return Screen(
         text=(
             f"🆕 <b>Yangi murojaat</b>\nTuri: {category_label}\n\n"
-            f"<b>Tavsif:</b>\n{description}\n\n"
+            f"<b>Tavsif:</b>\n{esc(description)}\n\n"
             "Fayl biriktirasizmi? (rasm, video, ovozli xabar, hujjat)"
         ),
         keyboard=InlineKeyboardMarkup(

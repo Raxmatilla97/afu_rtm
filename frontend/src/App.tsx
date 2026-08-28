@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { publicSiteApi } from "@/api/admin";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Layout } from "@/components/Layout";
@@ -16,8 +18,29 @@ import { HemisSyncPage } from "@/pages/HemisSyncPage";
 import { StatsPage } from "@/pages/StatsPage";
 import { LeaderboardPage } from "@/pages/LeaderboardPage";
 import { AdminNotesPage } from "@/pages/AdminNotesPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 export default function App() {
+  // The tab title and the meta description are editable in the admin panel, and this is
+  // a single-page app: index.html is served once and never rebuilt per install. Applying
+  // them here is what makes the setting real without a deploy. Failure is silent on
+  // purpose — a title that did not load is not worth an error screen over.
+  useEffect(() => {
+    publicSiteApi
+      .settings()
+      .then((site) => {
+        document.title = site.title;
+        let meta = document.querySelector('meta[name="description"]');
+        if (!meta) {
+          meta = document.createElement("meta");
+          meta.setAttribute("name", "description");
+          document.head.appendChild(meta);
+        }
+        meta.setAttribute("content", site.description);
+      })
+      .catch(() => undefined);
+  }, []);
+
   return (
     <AuthProvider>
       <Routes>
@@ -42,6 +65,7 @@ export default function App() {
               <Route path="/departments" element={<DepartmentsPage />} />
               <Route path="/hemis-sync" element={<HemisSyncPage />} />
               <Route path="/admin-notes" element={<AdminNotesPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
         </Route>

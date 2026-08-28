@@ -30,6 +30,7 @@ from app.handlers import (
     replies,
     soft,
 )
+from app.middlewares.activity import ActivityMiddleware
 from app.middlewares.auth_guard import AuthGuardMiddleware
 from app.middlewares.autoclean import AutoCleanMiddleware
 from app.middlewares.db_session import DbSessionMiddleware
@@ -89,6 +90,10 @@ async def main() -> None:
     for observer in (dp.message, dp.callback_query, dp.my_chat_member):
         observer.middleware(DbSessionMiddleware())
         observer.middleware(IdentityMiddleware())
+    for observer in (dp.message, dp.callback_query):
+        # Inside identity (so it knows who is talking) and outside the guard (so a blocked
+        # attempt still counts as somebody trying). Writes one activity row per update.
+        observer.middleware(ActivityMiddleware())
     for observer in (dp.message, dp.callback_query):
         # Not on my_chat_member: an unauthorised add is answered by the group handler
         # itself, which needs to see it rather than have it short-circuited.

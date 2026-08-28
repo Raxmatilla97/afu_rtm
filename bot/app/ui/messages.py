@@ -6,13 +6,16 @@ all three cases — a bare gap where a voice note was would read as a bug.
 
 from afu_shared.media import kind_label
 from afu_shared.models import RequestMessage
+from afu_shared.telegram_text import esc
 
 
 def format_message_body(message: RequestMessage) -> str:
     """The body of one message, with any attached file named in place."""
     parts: list[str] = []
     if message.body:
-        parts.append(message.body)
+        # Every screen that shows a thread renders through here, so escaping at this one
+        # point covers all of them. The <i> tags below are ours and stay markup.
+        parts.append(esc(message.body))
     for attachment in message.attachments:
         label = kind_label(attachment.kind)
         if attachment.duration_seconds:

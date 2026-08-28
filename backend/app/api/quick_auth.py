@@ -6,13 +6,15 @@ have not linked — and the rules behind it live in ``afu_shared.quick_login`` s
 enforces exactly the same ones.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared import quick_login
+from afu_shared.activity import record_for
 from afu_shared.passwords import mask_email
 from app.arq_pool import get_arq_pool
 from app.deps import get_db
+from app.rate_limit import enforce
 from app.schemas.auth import (
     EmployeeMeResponse,
     QuickForgotRequest,
@@ -30,9 +32,23 @@ router = APIRouter(prefix="/auth/quick", tags=["auth"])
 
 @router.post("/lookup", response_model=QuickLookupResponse)
 async def quick_lookup(
-    payload: QuickLookupRequest, session: AsyncSession = Depends(get_db)
+    payload: QuickLookupRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
 ) -> QuickLookupResponse:
-    """Who is behind this id number, and what the form should ask for next."""
+    """Who is behind this id number, and what the form should ask for next.
+
+    Rate limited because it answers "whose id is this?" for anybody who asks. Twenty in ten
+    minutes is far more than a person mistyping their own number needs, and far too few to
+    walk a block of ten-digit numbers and collect names.
+    """
+    await enforce(
+        request,
+        bucket="quick-lookup",
+        limit=20,
+        window_seconds=600,
+        message="Juda ko'p urinish. 10 daqiqadan keyin qaytadan urinib ko'ring.",
+    )
     employee = await quick_login.employee_by_id_number(session, payload.employee_id_number)
     if employee is None:
         return QuickLookupResponse(status=quick_login.Outcome.NOT_FOUND.value)
@@ -79,8 +95,20 @@ def _failure_message(result: quick_login.QuickLoginResult) -> str:
 
 @router.post("/login", response_model=EmployeeMeResponse)
 async def quick_login_submit(
-    payload: QuickLoginRequest, response: Response, session: AsyncSession = Depends(get_db)
+    payload: QuickLoginRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_db),
 ) -> EmployeeMeResponse:
+    # The per-account lockout stops one account being guessed; this stops one machine
+    # guessing at many accounts in turn.
+    await enforce(
+        request,
+        bucket="quick-login",
+        limit=15,
+        window_seconds=600,
+        message="Juda ko'p urinish. 10 daqiqadan keyin qaytadan urinib ko'ring.",
+    )
     result = await quick_login.check_password(
         session, payload.employee_id_number, payload.password
     )
@@ -89,15 +117,36 @@ async def quick_login_submit(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=_failure_message(result)
         )
 
+    await record_for(
+        session,
+        result.employee,
+        action="login.quick",
+        target=result.employee.employee_id_number,
+    )
     set_session_cookie(response, subject=str(result.employee.id), scope="employee")
     return EmployeeMeResponse.from_employee(result.employee)
 
 
 @router.post("/setup", response_model=EmployeeMeResponse)
 async def quick_setup(
-    payload: QuickSetupRequest, response: Response, session: AsyncSession = Depends(get_db)
+    payload: QuickSetupRequest,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_db),
 ) -> EmployeeMeResponse:
-    """First claim of an account: set the password and the recovery address, then sign in."""
+    """First claim of an account: set the password and the recovery address, then sign in.
+
+    The tightest limit of the four. Claiming is the one action here that takes ownership of
+    somebody else's identity if it is aimed at an id number that is not yours, so doing it
+    five times in an hour from one machine is already well past anything legitimate.
+    """
+    await enforce(
+        request,
+        bucket="quick-setup",
+        limit=5,
+        window_seconds=3600,
+        message="Juda ko'p urinish. Bir soatdan keyin qaytadan urinib ko'ring.",
+    )
     employee = await quick_login.employee_by_id_number(session, payload.employee_id_number)
     if employee is None:
         raise HTTPException(
@@ -117,13 +166,21 @@ async def quick_setup(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     await quick_login.set_recovery_email(session, employee, str(payload.recovery_email))
+    await record_for(
+        session,
+        employee,
+        action="login.quick.setup",
+        target=employee.employee_id_number,
+    )
     set_session_cookie(response, subject=str(employee.id), scope="employee")
     return EmployeeMeResponse.from_employee(employee)
 
 
 @router.post("/forgot", response_model=QuickForgotResponse)
 async def quick_forgot(
-    payload: QuickForgotRequest, session: AsyncSession = Depends(get_db)
+    payload: QuickForgotRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
 ) -> QuickForgotResponse:
     """Send the reset link, and say which address it went to.
 
@@ -131,6 +188,15 @@ async def quick_forgot(
     that mailbox has to learn it here rather than after waiting for a letter that they will
     never read.
     """
+    # Without this, one script can fill a colleague's inbox with reset letters.
+    await enforce(
+        request,
+        bucket="quick-forgot",
+        limit=5,
+        window_seconds=3600,
+        message="Juda ko'p urinish. Bir soatdan keyin qaytadan urinib ko'ring.",
+    )
+
     employee = await quick_login.employee_by_id_number(session, payload.employee_id_number)
     if employee is None or not employee.is_eligible:
         # Deliberately the same answer as the success case: this endpoint must not become a
@@ -170,9 +236,18 @@ async def quick_forgot(
 
 @router.post("/reset")
 async def quick_reset(
-    payload: QuickResetRequest, session: AsyncSession = Depends(get_db)
+    payload: QuickResetRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Set a new password from the link in the email."""
+    await enforce(
+        request,
+        bucket="quick-reset",
+        limit=10,
+        window_seconds=600,
+        message="Juda ko'p urinish. 10 daqiqadan keyin qaytadan urinib ko'ring.",
+    )
     try:
         employee = await quick_login.complete_password_reset(
             session, payload.token, payload.password
@@ -186,6 +261,9 @@ async def quick_reset(
             detail="Havola eskirgan yoki allaqachon ishlatilgan. Tiklashni qaytadan boshlang.",
         )
 
+    await record_for(
+        session, employee, action="login.quick.reset", target=employee.employee_id_number
+    )
     return {
         "employee_id_number": employee.employee_id_number,
         "message": "Parol yangilandi. Endi botda yoki saytda shu parol bilan kiring.",

@@ -116,17 +116,21 @@ export function QuickLoginForm({ onDone, onBack }: { onDone: () => void; onBack:
             <label className="mb-1 block text-sm font-medium text-slate-700">
               Xodim ID raqami
             </label>
+            {/* The placeholder is never a sample id number: a real one belongs to a real
+                person, and an unclaimed one typed by somebody else is an account
+                takeover. */}
             <input
               required
               inputMode="numeric"
               autoFocus
               value={idNumber}
               onChange={(e) => setIdNumber(e.target.value)}
-              placeholder="masalan: 4572612075"
+              placeholder="Shaxsiy xodim ID raqamingiz"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
             />
             <p className="mt-1 text-xs text-slate-500">
-              Xodimlik guvohnomangizda va HEMIS profilingizda yozilgan raqam.
+              Xodimlik guvohnomangizda va HEMIS profilingizda yozilgan shaxsiy raqamingiz.
+              Faqat o'zingizning raqamingizni kiriting.
             </p>
           </div>
           {error && <div className="text-sm text-red-600">{error}</div>}

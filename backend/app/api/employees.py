@@ -1,14 +1,21 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from afu_shared.models import Employee, User
+from afu_shared.models import Employee, Request, User
+from afu_shared.activity import record_for
 from app.deps import get_admin_actor, get_current_caller, get_db
 from app.schemas.employee import EmployeeResponse, EmployeeRolesUpdate
 
 router = APIRouter(prefix="/employees", tags=["employees"])
+
+
+#: Sort keys the employee list accepts. Anything else falls back to the name order, so a
+#: stale link cannot produce an empty page.
+SORT_BY_NAME = "name"
+SORT_BY_REQUESTS = "requests"
 
 
 @router.get("", response_model=list[EmployeeResponse])
@@ -16,10 +23,26 @@ async def list_employees(
     q: str | None = None,
     department_id: int | None = None,
     is_rtm_staff: bool | None = None,
+    sort: str = SORT_BY_NAME,
     actor: User | Employee = Depends(get_admin_actor),
     session: AsyncSession = Depends(get_db),
 ) -> list[EmployeeResponse]:
-    stmt = select(Employee)
+    """The employee roster, filtered and ordered as the admin panel asked.
+
+    Every row carries how many requests that person has filed. It is a correlated subquery
+    rather than a join with a GROUP BY on purpose: the result stays exactly one row per
+    employee, so the 500-row limit still means 500 people rather than 500 request-rows
+    collapsed into fewer.
+    """
+    filed_count = (
+        select(func.count(Request.id))
+        .where(Request.requester_employee_id == Employee.id)
+        .correlate(Employee)
+        .scalar_subquery()
+        .label("request_count")
+    )
+
+    stmt = select(Employee, filed_count)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Employee.full_name.ilike(like), Employee.employee_id_number.ilike(like)))
@@ -27,10 +50,19 @@ async def list_employees(
         stmt = stmt.where(Employee.department_id == department_id)
     if is_rtm_staff is not None:
         stmt = stmt.where(Employee.is_rtm_staff == is_rtm_staff)
-    stmt = stmt.order_by(Employee.full_name).limit(500)
 
-    result = await session.execute(stmt)
-    return [EmployeeResponse.from_employee(e) for e in result.scalars()]
+    if sort == SORT_BY_REQUESTS:
+        # Name as the tie-break: without it everyone on zero requests comes back in
+        # whatever order the database felt like, and the list reshuffles on every reload.
+        stmt = stmt.order_by(filed_count.desc(), Employee.full_name)
+    else:
+        stmt = stmt.order_by(Employee.full_name)
+
+    rows = (await session.execute(stmt.limit(500))).all()
+    return [
+        EmployeeResponse.from_employee(employee, request_count=count)
+        for employee, count in rows
+    ]
 
 
 @router.get("/rtm-staff", response_model=list[EmployeeResponse])
@@ -118,6 +150,16 @@ async def update_roles(
         employee.is_blocked = payload.is_blocked
         employee.blocked_at = datetime.now(timezone.utc) if payload.is_blocked else None
 
+    await record_for(
+        session,
+        actor,
+        action="employee.roles",
+        target=employee.full_name,
+        detail=", ".join(
+            f"{field}={value}"
+            for field, value in payload.model_dump(exclude_none=True).items()
+        ),
+    )
     await session.flush()
     return EmployeeResponse.from_employee(employee)
 

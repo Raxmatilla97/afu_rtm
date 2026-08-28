@@ -37,11 +37,14 @@ WELCOME = (
     "kirishni so'raydi, shuning uchun bu yo'l ancha qiyinroq."
 )
 
+#: No sample number here, ever. A real id number on this screen exposes whoever owns it
+#: and, worse, invites people to type it — and typing an unclaimed one is exactly how an
+#: account gets taken. The format is described instead.
 QUICK_ASK_ID = (
     "⚡ <b>Tezkor kirish</b>\n\n"
     "<b>Xodim ID raqamingizni</b> yuboring.\n\n"
-    "<i>Bu raqam xodimlik guvohnomangizda va HEMIS profilingizda yozilgan — "
-    "masalan, 4572612075.</i>"
+    "<i>Bu — xodimlik guvohnomangizda va HEMIS profilingizda yozilgan shaxsiy "
+    "raqamingiz. Faqat o'zingizning raqamingizni kiriting.</i>"
 )
 
 CONTACT_PROMPT = (

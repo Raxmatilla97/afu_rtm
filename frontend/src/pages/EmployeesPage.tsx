@@ -1,16 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { describeError } from "@/api/errors";
-import { employeesApi } from "@/api/reference";
+import { departmentsApi, employeesApi } from "@/api/reference";
 import { EmployeeAvatar } from "@/components/EmployeeAvatar";
 import { ErrorBanner, PageHeader } from "@/components/PageHeader";
 import { ResponsiveTable, type Column } from "@/components/ResponsiveTable";
-import type { Employee } from "@/types";
+import type { Department, Employee } from "@/types";
 
 type RoleKey = "is_rtm_staff" | "is_supervisor" | "is_admin" | "is_blocked";
 
 export function EmployeesPage() {
   const [items, setItems] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [q, setQ] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [staffOnly, setStaffOnly] = useState(false);
+  const [sort, setSort] = useState<"name" | "requests">("name");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +23,17 @@ export function EmployeesPage() {
   async function load() {
     setLoading(true);
     try {
-      setItems(await employeesApi.list({ q: q || undefined }));
+      // Filtering and sorting happen on the server: the list is capped at 500 rows, so
+      // narrowing it here would sort and filter only the first 500 names alphabetically —
+      // and "who files the most requests" would then be wrong by construction.
+      setItems(
+        await employeesApi.list({
+          q: q || undefined,
+          departmentId: departmentId ? Number(departmentId) : undefined,
+          isRtmStaff: staffOnly ? true : undefined,
+          sort,
+        }),
+      );
       setError(null);
     } catch (e) {
       setError(describeError(e));
@@ -29,9 +43,15 @@ export function EmployeesPage() {
   }
 
   useEffect(() => {
+    // Debounced because `q` changes on every keystroke; the other three are single clicks
+    // and simply ride along.
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, departmentId, staffOnly, sort]);
+
+  useEffect(() => {
+    departmentsApi.list().then(setDepartments).catch(() => setDepartments([]));
+  }, []);
 
   async function toggle(employee: Employee, key: RoleKey) {
     if (
@@ -86,6 +106,20 @@ export function EmployeesPage() {
             </div>
           </div>
         </button>
+      ),
+    },
+    {
+      key: "requests",
+      header: "Murojaatlar",
+      align: "right",
+      cell: (e) => (
+        <span
+          className={`tabular-nums ${
+            e.request_count > 0 ? "font-medium text-slate-800" : "text-slate-400"
+          }`}
+        >
+          {e.request_count}
+        </span>
       ),
     },
     {
@@ -179,6 +213,55 @@ export function EmployeesPage() {
       </p>
 
       {error && <ErrorBanner message={error} />}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          value={departmentId}
+          onChange={(e) => setDepartmentId(e.target.value)}
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto sm:max-w-xs"
+        >
+          <option value="">Barcha bo'limlar</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as "name" | "requests")}
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto"
+        >
+          <option value="name">F.I.Sh. bo'yicha (A-Z)</option>
+          <option value="requests">Ko'p murojaat yuborganlar</option>
+        </select>
+
+        <label className="flex min-h-11 items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={staffOnly}
+            onChange={(e) => setStaffOnly(e.target.checked)}
+          />
+          Faqat RTM xodimlari
+        </label>
+
+        {(departmentId || staffOnly || sort !== "name" || q) && (
+          <button
+            onClick={() => {
+              setDepartmentId("");
+              setStaffOnly(false);
+              setSort("name");
+              setQ("");
+            }}
+            className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            ✖ Filtrni tozalash
+          </button>
+        )}
+
+        <span className="text-sm text-slate-400">{items.length} ta xodim</span>
+      </div>
 
       {loading ? (
         <div className="text-slate-400">Yuklanmoqda...</div>

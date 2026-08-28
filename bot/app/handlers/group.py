@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from afu_shared.assignments import OPEN_FOR_PICKUP, add_assignee, assignees_of
 from afu_shared.group_card import PICKER_PAGE_SIZE, build_picker_keyboard
 from afu_shared.models import Employee, NotificationChat, Request
+from afu_shared.telegram_text import esc
 from app.callbacks import GrpCB
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ async def take_request(
     await arq_pool.enqueue_job(
         "refresh_request_cards",
         request.id,
-        f"🙋 <b>{employee.full_name}</b> — <b>{request.display_number}</b> ni o'z zimmasiga oldi.",
+        f"🙋 <b>{esc(employee.full_name)}</b> — <b>{request.display_number}</b> ni o'z zimmasiga oldi.",
     )
     # The full brief with every attachment goes to their own chat, where it can be read and
     # replayed without filling the group.

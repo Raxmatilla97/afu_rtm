@@ -47,6 +47,9 @@ class EmployeeResponse(BaseModel):
     #: failed" — the first question anybody asks about a page full of initials.
     image_source_url: str | None = None
 
+    #: How many requests this person has filed. Zero for endpoints that do not count.
+    request_count: int = 0
+
     # --- Quick login. Shown in the admin panel because "who claimed this account, and
     # --- when" is the only audit an id-number login can offer.
     has_quick_password: bool = False
@@ -66,9 +69,10 @@ class EmployeeResponse(BaseModel):
         from_attributes = True
 
     @classmethod
-    def from_employee(cls, employee) -> "EmployeeResponse":
+    def from_employee(cls, employee, *, request_count: int = 0) -> "EmployeeResponse":
         return cls(
             id=employee.id,
+            request_count=request_count,
             hemis_id=employee.hemis_id,
             employee_id_number=employee.employee_id_number,
             full_name=employee.full_name,
