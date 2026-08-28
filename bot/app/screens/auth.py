@@ -1,4 +1,10 @@
-"""Onboarding screens: HEMIS login, then the contact share."""
+"""Onboarding screens: the two ways in, then the contact share.
+
+Quick login comes first on the screen and in this file, because it is the one that works.
+HEMIS moved its sign-in behind One-ID, which most staff have not linked and cannot remember
+a password for, so the OAuth button — the only door until now — was turning people away at
+the step before they had even reached this bot.
+"""
 
 from typing import Any
 
@@ -8,7 +14,13 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.keyboards.common import contact_request_keyboard, hemis_login_keyboard
+from app.keyboards.common import (
+    contact_request_keyboard,
+    hemis_login_keyboard,
+    login_options_keyboard,
+    quick_back_keyboard,
+    quick_password_keyboard,
+)
 from app.middlewares.identity import AuthState
 from app.services.oauth_link import create_login_url
 from app.ui.anchor import Screen, render
@@ -18,12 +30,22 @@ WELCOME = (
     "👋 <b>RTM Murojaatlar tizimi</b>\n"
     "Alfraganus University — Raqamli texnologiyalar markazi\n\n"
     "Bu bot orqali RTM ga murojaat yuborasiz va uning holatini kuzatib borasiz.\n\n"
-    "Boshlash uchun HEMIS hisobingiz bilan kiring. Havola brauzerda ochiladi — "
-    "kirish tugagach botga qaytasiz."
+    "<b>Kirishning ikki yo'li bor:</b>\n"
+    "⚡ <b>Tezkor kirish</b> — xodim ID raqamingiz va shu bot uchun o'zingiz o'ylab "
+    "topadigan parol. Eng oson yo'l.\n"
+    "🔐 <b>HEMIS orqali</b> — HEMIS hisobingiz bilan. HEMIS hozir One-ID orqali "
+    "kirishni so'raydi, shuning uchun bu yo'l ancha qiyinroq."
+)
+
+QUICK_ASK_ID = (
+    "⚡ <b>Tezkor kirish</b>\n\n"
+    "<b>Xodim ID raqamingizni</b> yuboring.\n\n"
+    "<i>Bu raqam xodimlik guvohnomangizda va HEMIS profilingizda yozilgan — "
+    "masalan, 4572612075.</i>"
 )
 
 CONTACT_PROMPT = (
-    "✅ HEMIS orqali tanildingiz.\n\n"
+    "✅ Tanildingiz.\n\n"
     "Endi oxirgi qadam: pastdagi tugma orqali telefon raqamingizni ulashing. "
     "Bu raqam sizga xabar yuborish uchun kerak bo'ladi."
 )
@@ -45,9 +67,71 @@ BLOCKED = (
 
 
 async def build_login_screen(session: AsyncSession, *, telegram_user_id: int, chat_id: int) -> Screen:
-    # A fresh state is minted per render, so the button is never stale for long.
+    # A fresh OAuth state is minted per render, so the HEMIS button is never stale for long.
     url = await create_login_url(session, telegram_user_id=telegram_user_id, chat_id=chat_id)
-    return Screen(text=WELCOME, keyboard=hemis_login_keyboard(url))
+    return Screen(text=WELCOME, keyboard=login_options_keyboard(url))
+
+
+def build_quick_id_screen() -> Screen:
+    return Screen(text=QUICK_ASK_ID, keyboard=quick_back_keyboard())
+
+
+def _where(department: str | None) -> str:
+    return f"\n🏢 {department}" if department else ""
+
+
+def build_quick_setup_screen(full_name: str, department: str | None) -> Screen:
+    """Identity first, password second.
+
+    The name goes on the screen before anything is typed. People have been ending up inside
+    a colleague's account, and this is the moment to catch a wrong id number — while going
+    back still costs one tap and nothing has been claimed.
+    """
+    return Screen(
+        text=(
+            "⚡ <b>Tezkor kirish — birinchi marta</b>\n\n"
+            f"👤 <b>{full_name}</b>{_where(department)}\n\n"
+            "Agar bu siz bo'lmasangiz — «⬅️ Orqaga» ni bosing va ID raqamni tekshiring.\n\n"
+            "Siz bo'lsangiz, shu bot uchun <b>parol</b> o'ylab toping va yuboring:\n"
+            "• kamida 6 ta belgi\n"
+            "• kamida bitta harf va bitta raqam\n"
+            "• ID raqamingizning o'zi bo'lmasin\n\n"
+            "<i>Yuborilgan parol chatdan darhol o'chiriladi.</i>"
+        ),
+        keyboard=quick_back_keyboard(),
+    )
+
+
+def build_quick_email_screen(full_name: str) -> Screen:
+    return Screen(
+        text=(
+            "✅ Parol saqlandi.\n\n"
+            f"👤 <b>{full_name}</b>\n\n"
+            "Endi <b>elektron pochta manzilingizni</b> yuboring. U bitta narsa uchun kerak: "
+            "parolni unutsangiz, tiklash havolasi shu manzilga yuboriladi.\n\n"
+            "<i>Masalan: ism.familiya@afu.uz</i>"
+        ),
+        keyboard=None,
+    )
+
+
+def build_quick_password_screen(
+    full_name: str, department: str | None, *, note: str | None = None
+) -> Screen:
+    """Ask a returning user for their password. ``note`` carries a failed attempt.
+
+    The reset button appears only after a password has actually failed — offered up front
+    it invites people to reset a password they were about to remember.
+    """
+    warning = f"\n\n⚠️ {note}" if note else ""
+    return Screen(
+        text=(
+            "⚡ <b>Tezkor kirish</b>\n\n"
+            f"👤 <b>{full_name}</b>{_where(department)}\n\n"
+            f"Shu bot uchun o'rnatgan <b>parolingizni</b> yuboring.{warning}"
+        ),
+        keyboard=quick_password_keyboard(offer_reset=note is not None),
+    )
 
 
 def build_contact_screen() -> Screen:

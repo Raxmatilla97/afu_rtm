@@ -9,6 +9,7 @@ from app.tasks.group import (
     refresh_request_cards,
     send_request_files_to_chat,
 )
+from app.tasks.email import send_password_reset_email
 from app.tasks.hemis_sync import hemis_sync_task
 from app.tasks.notifications import (
     notify_request_assigned,
@@ -28,6 +29,7 @@ class WorkerSettings:
     functions = [
         hemis_sync_task,
         delete_telegram_message,
+        send_password_reset_email,
         send_completion_notification,
         notify_request_message,
         notify_request_assigned,

@@ -61,11 +61,15 @@ async def test_matches_on_hemis_uuid(session):
     assert result.strategy == "hemis_uuid"
 
 
-async def test_matches_on_hemis_id(session):
-    emp = await _add(session, _employee(hemis_id=987654))
-    result = await match_employee(session, {"id": 987654})
-    assert result.employee.id == emp.id
-    assert result.strategy == "hemis_id"
+async def test_refuses_oauth_id_against_hemis_id(session):
+    """The OAuth subject and the sync API's employee id are unrelated counters.
+
+    They collide freely, and the collision used to sign somebody in as a colleague — with
+    that colleague's name and department on every screen. Refusing is the fix; quick login
+    is the way in for whoever HEMIS cannot place.
+    """
+    await _add(session, _employee(hemis_id=987654))
+    assert await match_employee(session, {"id": 987654}) is None
 
 
 def _unique_digits() -> str:
@@ -115,16 +119,18 @@ async def test_matches_email_case_insensitively(session):
     assert result.strategy == "hemis_email"
 
 
-async def test_matches_unique_full_name(session):
+async def test_refuses_to_match_on_full_name(session):
+    """A name is not an identifier, even a unique one.
+
+    Two employees can share a name today or tomorrow, and HEMIS's ``name`` is a display
+    string rather than a key. Matching on it handed out other people's accounts.
+    """
     name = f"UNIQUE PERSON {uuid.uuid4().hex[:8]}"
-    emp = await _add(session, _employee(full_name=name))
-    result = await match_employee(session, {"id": "x", "name": name.lower()})
-    assert result.employee.id == emp.id
-    assert result.strategy == "full_name_exact"
+    await _add(session, _employee(full_name=name))
+    assert await match_employee(session, {"id": "x", "name": name.lower()}) is None
 
 
 async def test_refuses_ambiguous_full_name(session):
-    # Two people sharing a name must never be collapsed into one account.
     name = f"AMBIGUOUS {uuid.uuid4().hex[:8]}"
     await _add(session, _employee(full_name=name))
     await _add(session, _employee(full_name=name))

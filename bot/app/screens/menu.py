@@ -48,10 +48,18 @@ def build_help(employee: Employee) -> Screen:
         "<b>Soft va drayverlar</b>",
         "Printer drayveri, antivirus, ofis dasturlari — pastdagi tugmadan. "
         "Fayl shu chatga yuboriladi va 10 daqiqadan so'ng o'chadi.\n",
+        "<b>Parolni unutdingizmi?</b>",
+        "1. /chiqish yozing — hisobdan chiqasiz.",
+        "2. «⚡ Tezkor kirish» ni bosing va xodim ID raqamingizni yuboring.",
+        "3. Parolni noto'g'ri kiritsangiz, «🔑 Parolni tiklash» tugmasi chiqadi — bosing.",
+        "4. Pochtangizga havola keladi; rtm.afu.uz saytida yangi parol o'rnatasiz.",
+        "5. Botga qaytib, ID raqam va yangi parol bilan kiring.",
+        "<i>Pochta biriktirmagan bo'lsangiz, parolni faqat RTM tiklab bera oladi.</i>\n",
         "<b>Buyruqlar</b>",
         "/menu — asosiy menyu",
         "/help — shu sahifa",
         "/cancel — joriy amalni bekor qilish",
+        "/chiqish — hisobdan chiqish (boshqa ID bilan kirish uchun)",
     ]
 
     return Screen(

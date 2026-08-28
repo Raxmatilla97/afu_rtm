@@ -9,6 +9,9 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "redis>=5.0.0",
     "aiogram>=3.10.0",
+    # The quick-login password is checked in the bot and in the backend, so the hashing
+    # helper lives here and brings its dependency with it.
+    "bcrypt>=4.1.2",
 ]
 
 [build-system]

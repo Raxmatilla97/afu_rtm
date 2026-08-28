@@ -1,10 +1,17 @@
 """Resolve a HEMIS OAuth user to a local Employee row.
 
 The local employee roster is populated by a *different* HEMIS integration (the bulk sync,
-which uses a static bearer token against student.alfraganusuniversity.uz). It is not
-confirmed that the OAuth userinfo ``id`` is the same identifier as the sync API's employee
-``id``, nor what ``login`` contains. Rather than guess one mapping and fail opaquely, we try
-each plausible mapping in turn and record which one worked.
+which uses a static bearer token against student.alfraganusuniversity.uz), so the two sides
+do not share an id space. Every rung here therefore compares values of the *same kind* —
+a subject to a subject, an id number to an id number, an address to an address.
+
+**No rung guesses across id spaces, and none matches on a name.** Earlier versions did
+both: the OAuth ``id`` was tried against ``employees.hemis_id`` (two unrelated counters
+that collide freely) and, as a last resort, ``name`` was matched against ``full_name``.
+Either could hand somebody a colleague's account — which is exactly what happened: people
+signed in and found themselves under another person's name and department. Refusing to
+match is now the correct outcome for an unrecognised account: the quick login (id number
+plus a local password) is the way in for anyone HEMIS cannot place.
 
 Once a login succeeds, ``hemis_oauth_subject`` is written to the employee, so every later
 login for that person short-circuits on the first rung.
@@ -37,15 +44,6 @@ def _text(userinfo: dict[str, Any], key: str) -> str | None:
     return text or None
 
 
-def _as_int(value: str | None) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 async def _one(session: AsyncSession, condition: Any) -> Employee | None:
     return (await session.execute(select(Employee).where(condition))).scalar_one_or_none()
 
@@ -72,7 +70,6 @@ async def match_employee(session: AsyncSession, userinfo: dict[str, Any]) -> Mat
     login = _text(userinfo, "login")
     university_id = _text(userinfo, "university_id")
     email = _text(userinfo, "email")
-    name = _text(userinfo, "name")
 
     # Ordered most- to least-trustworthy. Each rung is skipped when its source value is absent.
     if oauth_id:
@@ -85,46 +82,20 @@ async def match_employee(session: AsyncSession, userinfo: dict[str, Any]) -> Mat
         if found:
             return MatchResult(found, "hemis_uuid")
 
-    if (numeric_id := _as_int(oauth_id)) is not None:
-        found = await _one(session, Employee.hemis_id == numeric_id)
-        if found:
-            return MatchResult(found, "hemis_id")
-
     if found := await _by_id_number(session, login):
         return MatchResult(found, "login_as_id_number")
 
     if found := await _by_id_number(session, university_id):
         return MatchResult(found, "university_id_as_id_number")
 
-    if found := await _by_id_number(session, oauth_id):
-        return MatchResult(found, "id_as_id_number")
-
-    if (numeric_login := _as_int(login)) is not None:
-        found = await _one(session, Employee.hemis_id == numeric_login)
-        if found:
-            return MatchResult(found, "login_as_hemis_id")
-
     if email:
         found = await _one(session, func.lower(Employee.hemis_email) == email.lower())
         if found:
             return MatchResult(found, "hemis_email")
 
-    if name:
-        # Names are not identifiers. Only accept when exactly one employee matches —
-        # two people sharing a name must never be silently collapsed into one account.
-        rows = (
-            await session.execute(
-                select(Employee).where(func.lower(Employee.full_name) == name.lower()).limit(2)
-            )
-        ).scalars().all()
-        if len(rows) == 1:
-            return MatchResult(rows[0], "full_name_exact")
-        if len(rows) > 1:
-            logger.warning("HEMIS OAuth: full_name %r is ambiguous, refusing to match", name)
-
     logger.warning(
-        "HEMIS OAuth: no employee matched. Probed hemis_oauth_subject, hemis_uuid, hemis_id, "
-        "employee_id_number (from login/university_id/id), hemis_email, full_name. userinfo=%s",
+        "HEMIS OAuth: no employee matched. Probed hemis_oauth_subject, hemis_uuid, "
+        "employee_id_number (from login and university_id) and hemis_email. userinfo=%s",
         userinfo if settings.oauth_debug_log_userinfo else "<logging disabled>",
     )
     return None

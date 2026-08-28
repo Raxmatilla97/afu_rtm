@@ -346,6 +346,18 @@ function EmployeeDetailModal({
             <Row label="Surat fayli" value={employee.image_local_path} />
           </Section>
 
+          <Section title="Tezkor kirish">
+            <Row
+              label="Parol o'rnatilgan"
+              value={
+                employee.has_quick_password
+                  ? fmtDateTime(employee.password_set_at) ?? "ha"
+                  : "yo'q — hisob hali egallanmagan"
+              }
+            />
+            <Row label="Tiklash pochtasi" value={employee.recovery_email} />
+          </Section>
+
           <p className="mb-6 rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">
             🖼 {photoNote}
           </p>

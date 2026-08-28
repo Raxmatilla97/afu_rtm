@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { authApi } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { QuickLoginForm } from "@/components/QuickLoginForm";
 import { useAuth } from "@/context/AuthContext";
 
 const OAUTH_ERRORS: Record<string, string> = {
@@ -18,7 +19,7 @@ const OAUTH_ERRORS: Record<string, string> = {
 };
 
 export function LoginPage() {
-  const [mode, setMode] = useState<"choose" | "admin">("choose");
+  const [mode, setMode] = useState<"choose" | "quick" | "admin">("choose");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -81,14 +82,26 @@ export function LoginPage() {
 
         {mode === "choose" && (
           <div className="space-y-3">
+            {/* Quick login first and styled as the primary action: HEMIS now signs people
+                in through One-ID, which most staff have not linked, so leading with it was
+                sending everybody down the route that fails. */}
+            <button
+              onClick={() => setMode("quick")}
+              className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              ⚡ Tezkor kirish
+            </button>
+            <p className="text-center text-xs text-slate-500">
+              Xodim ID raqamingiz va shu tizim uchun parolingiz bilan
+            </p>
             <button
               onClick={startHemisLogin}
-              className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700"
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               🔐 HEMIS orqali kirish
             </button>
             <p className="text-center text-xs text-slate-500">
-              Universitet xodimlari HEMIS hisobi bilan kiradi
+              HEMIS hozir One-ID orqali kirishni so'raydi — bu yo'l qiyinroq
             </p>
             <button
               onClick={() => setMode("admin")}
@@ -97,6 +110,16 @@ export function LoginPage() {
               Admin sifatida kirish
             </button>
           </div>
+        )}
+
+        {mode === "quick" && (
+          <QuickLoginForm
+            onBack={() => setMode("choose")}
+            onDone={async () => {
+              await refresh();
+              navigate("/");
+            }}
+          />
         )}
 
         {mode === "admin" && (

@@ -47,6 +47,12 @@ class EmployeeResponse(BaseModel):
     #: failed" — the first question anybody asks about a page full of initials.
     image_source_url: str | None = None
 
+    # --- Quick login. Shown in the admin panel because "who claimed this account, and
+    # --- when" is the only audit an id-number login can offer.
+    has_quick_password: bool = False
+    password_set_at: datetime | None = None
+    recovery_email: str | None = None
+
     # --- HEMIS identity, filled by the OAuth login rather than the bulk sync ---
     hemis_login: str | None = None
     hemis_email: str | None = None
@@ -84,6 +90,9 @@ class EmployeeResponse(BaseModel):
             verified_at=employee.verified_at,
             image_local_path=employee.image_local_path,
             image_source_url=employee.image_source_url,
+            has_quick_password=bool(employee.quick_password_hash),
+            password_set_at=employee.password_set_at,
+            recovery_email=employee.recovery_email,
             hemis_login=employee.hemis_login,
             hemis_email=employee.hemis_email,
             hemis_phone=employee.hemis_phone,

@@ -126,8 +126,112 @@ export function AdminNotesPage() {
       </Section>
 
       <Section
+        id="kirish"
+        title="2. Tizimga kirish: ikki yo'l"
+        lead="Nega tezkor kirish qo'shildi, u qanday ishlaydi va parol unutilganda nima bo'ladi."
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card tone="brand" title="⚡ Tezkor kirish">
+            <p>
+              Xodim <b>ID raqami</b> va shu tizim uchun <b>parol</b>. Botda ham, saytda ham
+              bir xil ishlaydi va bir xil parolni so'raydi.
+            </p>
+            <p className="mt-2">
+              Birinchi marta: ID raqam yoziladi → ekranda <b>kimning hisobi ochilayotgani
+              ko'rsatiladi</b> → parol o'ylab topiladi → elektron pochta so'raladi.
+              Keyingi safar faqat ID va parol.
+            </p>
+          </Card>
+          <Card tone="slate" title="🔐 HEMIS orqali kirish">
+            <p>
+              Eski yo'l. HEMIS endi login-parol o'rniga <b>One-ID</b> orqali kirishni
+              so'raydi, ko'pchilikning profili unga bog'lanmagan yoki paroli esida yo'q —
+              shuning uchun bu yo'l ikkinchi o'ringa tushdi.
+            </p>
+            <p className="mt-2">
+              Ishlaganda foydasi bor: HEMIS shaxsni o'zi tasdiqlaydi. Shuning uchun u
+              olib tashlanmadi.
+            </p>
+          </Card>
+        </div>
+
+        <Callout tone="amber" title="Xavfsizlik: ID raqam sir emas">
+          <p>
+            Xodim ID raqami guvohnomada yozilgan va ro'yxatlarda uchraydi. Ya'ni{" "}
+            <b>hisobni birinchi bo'lib parol o'rnatgan odam egallaydi</b>. Buni kamaytirish
+            uchun:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>
+              xodimlarga <b>imkon qadar tezroq</b> o'z hisobiga kirib parol o'rnatishni
+              ayting — parol qo'yilgach, hisobni boshqa hech kim egallay olmaydi;
+            </li>
+            <li>
+              HEMIS orqali kirgan Telegram hisobiga bog'langan yozuvni tezkor kirish
+              <b> tortib ololmaydi</b>;
+            </li>
+            <li>
+              «Xodimlar» sahifasidagi batafsil oynada <b>parol qachon o'rnatilgani</b> va{" "}
+              <b>qaysi pochta biriktirilgani</b> ko'rinadi — shubhali holatni shu yerdan
+              topasiz;
+            </li>
+            <li>parol 5 marta xato kiritilsa, hisob 15 daqiqaga bloklanadi.</li>
+          </ul>
+        </Callout>
+
+        <Callout tone="red" title="Parolni tiklash uchun pochta sozlanishi shart">
+          <p>
+            Parol unutilganda tiklash havolasi elektron pochtaga yuboriladi. Buning uchun{" "}
+            <code className="rounded bg-slate-100 px-1">.env</code> faylida{" "}
+            <code className="rounded bg-slate-100 px-1">SMTP_HOST</code>,{" "}
+            <code className="rounded bg-slate-100 px-1">SMTP_PORT</code>,{" "}
+            <code className="rounded bg-slate-100 px-1">SMTP_USER</code>,{" "}
+            <code className="rounded bg-slate-100 px-1">SMTP_PASSWORD</code> to'ldirilgan
+            bo'lishi kerak.
+          </p>
+          <p className="mt-2">
+            Sozlanmagan bo'lsa, xat <b>yuborilmaydi</b>: foydalanuvchiga «RTM bilan
+            bog'laning» deb yoziladi va worker logida xato qoladi. Bunday hollarda parolni
+            faqat RTM qo'lda yangilay oladi.
+          </p>
+        </Callout>
+
+        <h3 className="mb-2 mt-6 text-sm font-semibold text-slate-800">
+          Parolni unutgan xodimga nima deyish kerak
+        </h3>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700">
+          <li>
+            Botda <code className="rounded bg-slate-100 px-1">/chiqish</code> yozsin —
+            hisobdan chiqadi va kirish ekrani qaytadi.
+          </li>
+          <li>«⚡ Tezkor kirish» → ID raqamini yuborsin.</li>
+          <li>
+            Parolni xato kiritganda <b>«🔑 Parolni tiklash»</b> tugmasi chiqadi — o'sha
+            tugmani bossin. Havola pochtaga ketadi va chatdagi ko'rsatma <b>o'chmay
+            turadi</b>.
+          </li>
+          <li>Pochtadagi havola rtm.afu.uz saytini ochadi, u yerda yangi parol qo'yiladi.</li>
+          <li>
+            Botga qaytib yana «⚡ Tezkor kirish» — ID va yangi parol. Muvaffaqiyatli
+            kirgach, tiklash haqidagi eski xabarlar avtomatik o'chadi.
+          </li>
+        </ol>
+
+        <Callout tone="slate" title="Boshqa odam bo'lib ko'rinish muammosi">
+          Ilgari HEMIS orqali kirgan ba'zi xodimlar tizimda <b>boshqa odamning ismi va
+          bo'limi</b> bilan chiqib qolgan edi. Sababi: HEMIS'ning OAuth identifikatori
+          bilan xodimlar ro'yxatidagi ichki ID raqamlari boshqa-boshqa raqamlar bo'lsa ham,
+          kod ularni bir-biriga taqqoslab ko'rar edi (va ism bo'yicha ham moslashtirardi).
+          Bu ikkala taxmin ham olib tashlandi — endi mos kelmasa, tizim{" "}
+          <b>kiritmaydi</b> va tezkor kirishdan foydalanish taklif etiladi. Noto'g'ri
+          bog'langan xodim <code className="rounded bg-slate-100 px-1">/chiqish</code>{" "}
+          yozib, o'z ID raqami bilan qayta kirsa, bog'lanish o'z-o'zidan to'g'rilanadi.
+        </Callout>
+      </Section>
+
+      <Section
         id="bot"
-        title="2. Bot qanday ishlaydi"
+        title="3. Bot qanday ishlaydi"
         lead="Murojaat yo'li: murojaatchidan RTM xodimigacha va yana murojaatchiga qaytib."
       >
         <DiagramFrame caption="1-chizma. Murojaatning tizim bo'ylab harakati">
@@ -182,7 +286,7 @@ export function AdminNotesPage() {
 
       <Section
         id="holatlar"
-        title="3. Murojaatlarni ishlash tartibi (holatlar)"
+        title="4. Murojaatlarni ishlash tartibi (holatlar)"
         lead="Murojaat qaysi holatlardan o'tadi, holatni kim o'zgartira oladi."
       >
         <DiagramFrame caption="2-chizma. Murojaat holatlarining o'zgarishi">
@@ -233,7 +337,7 @@ export function AdminNotesPage() {
 
       <Section
         id="rollar"
-        title="4. Rollar va huquqlar"
+        title="5. Rollar va huquqlar"
         lead="Kim nima qila oladi. Rollar «Xodimlar» sahifasidan belgilanadi."
       >
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -265,7 +369,7 @@ export function AdminNotesPage() {
 
       <Section
         id="kundalik"
-        title="5. Kundalik eslatmalar"
+        title="6. Kundalik eslatmalar"
         lead="Tez-tez so'raladigan narsalar va ularning javobi."
       >
         <div className="grid gap-4 lg:grid-cols-2">

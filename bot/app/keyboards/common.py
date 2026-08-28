@@ -14,7 +14,7 @@ from aiogram.types import (
 )
 
 from afu_shared.labels import BTN_SHARE_CONTACT
-from app.callbacks import Nav
+from app.callbacks import Nav, QuickCB
 
 
 def contact_request_keyboard() -> ReplyKeyboardMarkup:
@@ -45,6 +45,60 @@ def hemis_login_keyboard(login_url: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔐 HEMIS orqali kirish", url=login_url)]
         ]
     )
+
+
+def login_options_keyboard(login_url: str) -> InlineKeyboardMarkup:
+    """The two ways in, quickest first.
+
+    HEMIS is second and labelled as the harder one because that is the truth: it now hands
+    the user to One-ID, which most staff have never linked. Putting it first was sending
+    everybody down the route that fails.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚡ Tezkor kirish (tavsiya etiladi)",
+                    callback_data=QuickCB(act="start").pack(),
+                )
+            ],
+            [InlineKeyboardButton(text="🔐 HEMIS orqali kirish", url=login_url)],
+        ]
+    )
+
+
+def quick_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Orqaga", callback_data=QuickCB(act="back").pack()
+                )
+            ]
+        ]
+    )
+
+
+def quick_password_keyboard(*, offer_reset: bool) -> InlineKeyboardMarkup:
+    """The password step. The reset button appears once a password has actually failed."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if offer_reset:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔑 Parolni tiklash",
+                    callback_data=QuickCB(act="reset").pack(),
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ Orqaga", callback_data=QuickCB(act="back").pack()
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def back_button(to: str, page: int = 1, text: str = "⬅️ Orqaga") -> InlineKeyboardButton:

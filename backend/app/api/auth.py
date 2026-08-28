@@ -41,15 +41,4 @@ async def admin_me(admin: User = Depends(get_current_admin)) -> User:
 
 @router.get("/employee/me", response_model=EmployeeMeResponse)
 async def employee_me(employee: Employee = Depends(get_current_employee)) -> EmployeeMeResponse:
-    return EmployeeMeResponse(
-        id=employee.id,
-        full_name=employee.full_name,
-        employee_id_number=employee.employee_id_number,
-        department_name=employee.department.name if employee.department else None,
-        is_rtm_staff=employee.is_rtm_staff,
-        is_supervisor=employee.is_supervisor,
-        is_admin=employee.is_admin,
-        can_manage_assignments=employee.can_manage_assignments,
-        phone_number=employee.phone_number,
-        telegram_username=employee.telegram_username,
-    )
+    return EmployeeMeResponse.from_employee(employee)

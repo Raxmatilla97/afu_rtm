@@ -8,6 +8,7 @@ from app.api import (
     hemis_sync,
     inventory,
     oauth_admin,
+    quick_auth,
     ratings,
     requests,
     soft,
@@ -16,6 +17,7 @@ from app.api import (
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(quick_auth.router)
 api_router.include_router(oauth_admin.router)
 api_router.include_router(hemis_sync.router)
 api_router.include_router(departments.router)

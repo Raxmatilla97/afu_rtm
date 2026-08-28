@@ -90,6 +90,16 @@ class InvCB(CallbackData, prefix="i"):
     page: int = 1
 
 
+class QuickCB(CallbackData, prefix="q"):
+    """Buttons on the login screen and inside the quick-login flow.
+
+    ``act``: ``start`` opens the id-number step, ``reset`` mails a password reset,
+    ``back`` returns to the two login options.
+    """
+
+    act: str
+
+
 class SoftCB(CallbackData, prefix="d"):
     """The driver and software shelf.
 

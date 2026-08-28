@@ -13,7 +13,9 @@ from aiogram import BaseMiddleware
 from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from app.callbacks import QuickCB
 from app.middlewares.identity import AuthState
+from app.states.quick_login import QuickLoginStates
 
 #: What a group member sees when they press a card button without having onboarded. The
 #: fix is always the same and always in a DM, so the alert says exactly that.
@@ -28,12 +30,16 @@ GROUP_BLOCKED = "🚫 Siz botdan foydalana olmaysiz — hisobingiz bloklangan."
 
 #: Commands that must work before the user is fully onboarded.
 #:
-#: Deliberately just ``/start``. Every other handler below declares ``employee: Employee``
-#: as non-optional, so letting ``/menu`` or ``/help`` through for an unonboarded user meant
-#: the handler ran with ``employee=None`` and died on ``employee.full_name`` — from the
-#: chat that looked exactly like the bot ignoring the command. Anything not listed here
-#: falls through to the onboarding screen, which is the useful answer anyway.
-_ALLOWED_COMMANDS = ("/start",)
+#: Short on purpose. Every other handler declares ``employee: Employee`` as non-optional,
+#: so letting ``/menu`` or ``/help`` through for an unonboarded user meant the handler ran
+#: with ``employee=None`` and died on ``employee.full_name`` — from the chat that looked
+#: exactly like the bot ignoring the command. Anything not listed here falls through to the
+#: onboarding screen, which is the useful answer anyway.
+#:
+#: ``/chiqish`` is here because being half-logged-in is exactly when somebody needs it:
+#: linked to the wrong employee, or stuck before the phone share. Its handler accepts a
+#: missing employee.
+_ALLOWED_COMMANDS = ("/start", "/chiqish")
 
 
 class AuthGuardMiddleware(BaseMiddleware):
@@ -48,6 +54,13 @@ class AuthGuardMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if _is_always_allowed(event):
+            return await handler(event, data)
+
+        # The quick login happens entirely inside this guard's "not allowed yet" territory:
+        # its buttons are pressed and its answers are typed by people who are, by
+        # definition, not signed in. Blocking them would make the only working door
+        # unopenable. A blocked account is still refused below, one branch further down.
+        if auth_state is not AuthState.INELIGIBLE and await _is_quick_login_step(event, data):
             return await handler(event, data)
 
         # Not onboarded: short-circuit to the screen that explains what is missing,
@@ -86,6 +99,20 @@ class AuthGuardMiddleware(BaseMiddleware):
                 chat_id=chat_id, data=data, force_new=isinstance(event, Message)
             )
         return None
+
+
+async def _is_quick_login_step(event: TelegramObject, data: dict[str, Any]) -> bool:
+    """A button or an answer belonging to the quick-login conversation."""
+    if isinstance(event, CallbackQuery):
+        prefix = f"{QuickCB.__prefix__}{QuickCB.__separator__}"
+        return (event.data or "").startswith(prefix)
+    if isinstance(event, Message):
+        state = data.get("state")
+        if state is None:
+            return False
+        current = await state.get_state()
+        return bool(current) and str(current).startswith(f"{QuickLoginStates.__name__}:")
+    return False
 
 
 def _chat_of(event: TelegramObject):

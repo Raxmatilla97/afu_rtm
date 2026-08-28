@@ -52,6 +52,10 @@ export interface Employee {
   image_local_path: string | null;
   /** What HEMIS said the photo is. Null with no local copy = HEMIS never offered one. */
   image_source_url: string | null;
+  /** Quick login: whether this account has been claimed, and when. */
+  has_quick_password: boolean;
+  password_set_at: string | null;
+  recovery_email: string | null;
   hemis_login: string | null;
   hemis_email: string | null;
   hemis_phone: string | null;

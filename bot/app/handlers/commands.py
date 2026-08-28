@@ -14,11 +14,12 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from afu_shared import quick_login
 from afu_shared.models import Employee
 from app.callbacks import Nav, StatCB
 from app.middlewares.identity import AuthState
 from app.screens import assignments, menu, my_requests, new_request, stats
-from app.screens.auth import show_auth_screen
+from app.screens.auth import build_login_screen, show_auth_screen
 from app.states.new_request import NewRequestStates
 from app.ui.anchor import Screen, render
 from app.utils.transient import purge_transients, send_transient
@@ -117,6 +118,40 @@ async def cmd_cancel(
     await render(bot, redis, message.chat.id, menu.build_menu(employee))
     if had_state:
         await send_transient(bot, redis, arq_pool, message.chat.id, "✖️ Amal bekor qilindi.")
+
+
+@router.message(Command("chiqish"))
+async def cmd_logout(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    employee: Employee | None,
+    bot: Bot,
+    redis: Redis,
+    arq_pool: ArqRedis,
+) -> None:
+    """Unlink this Telegram account and go back to the login screen.
+
+    Accepts a missing employee on purpose: somebody who is half-onboarded, or who was
+    linked to the wrong person by the old HEMIS matcher, is exactly who reaches for this.
+    The password stays on the employee row — logging out is not forgetting who you are.
+    """
+    await state.clear()
+    await purge_transients(redis, arq_pool, message.chat.id)
+
+    if employee is not None:
+        await quick_login.unlink_telegram(session, employee)
+        await session.commit()
+
+    screen = await build_login_screen(
+        session, telegram_user_id=message.from_user.id, chat_id=message.chat.id
+    )
+    await render(bot, redis, message.chat.id, screen, force_new=True)
+    await send_transient(
+        bot, redis, arq_pool, message.chat.id,
+        "🚪 Hisobdan chiqdingiz. Qaytadan kirish uchun «⚡ Tezkor kirish» ni bosing.",
+        ttl=30,
+    )
 
 
 @router.callback_query(Nav.filter())

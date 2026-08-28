@@ -3,6 +3,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Layout } from "@/components/Layout";
 import { LoginPage } from "@/pages/LoginPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { RequestsListPage } from "@/pages/RequestsListPage";
 import { RequestDetailPage } from "@/pages/RequestDetailPage";
@@ -21,6 +22,9 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* Public: the link in a password reset email lands here, and whoever follows it
+            is by definition unable to sign in. */}
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>

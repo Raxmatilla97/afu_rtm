@@ -25,6 +25,7 @@ from app.handlers import (
     messaging,
     my_requests,
     new_request,
+    quick_login,
     rating,
     replies,
     soft,
@@ -42,6 +43,7 @@ BOT_COMMANDS = [
     BotCommand(command="menu", description="Asosiy menyu"),
     BotCommand(command="help", description="Yordam"),
     BotCommand(command="cancel", description="Amalni bekor qilish"),
+    BotCommand(command="chiqish", description="Hisobdan chiqish"),
 ]
 
 #: No "/" menu in a group at all — not for members, not for that chat's administrators.
@@ -100,6 +102,9 @@ async def main() -> None:
 
     private_routers = (
         commands.router,
+        # Before everything else: its states own the typed lines during onboarding, and
+        # a stray handler claiming a password would be both wrong and dangerous.
+        quick_login.router,
         contact.router,
         new_request.router,
         my_requests.router,

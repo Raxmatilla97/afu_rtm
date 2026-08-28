@@ -25,6 +25,14 @@ MEDIA_KEY_TMPL = "bot:media:{chat_id}"
 MAX_TRACKED_MEDIA = 40
 
 
+#: Messages that must NOT expire on a timer or on the next screen change: the "we emailed
+#: you a reset link" notice. It has to survive the user leaving Telegram, opening their
+#: mail, resetting the password on the web and coming back — which is exactly the journey
+#: a transient would not survive. Cleared explicitly once they log in again.
+STICKY_KEY_TMPL = "bot:sticky:{chat_id}"
+MAX_TRACKED_STICKY = 5
+
+
 def _key(chat_id: int) -> str:
     return TRANSIENTS_KEY_TMPL.format(chat_id=chat_id)
 
@@ -107,4 +115,32 @@ async def purge_media(bot: Bot, redis: Redis, chat_id: int) -> None:
             await bot.delete_message(chat_id, int(raw))
         except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter):
             # Already gone, older than 48h, or blocked — none of it worth reporting.
+            pass
+
+
+def _sticky_key(chat_id: int) -> str:
+    return STICKY_KEY_TMPL.format(chat_id=chat_id)
+
+
+async def remember_sticky(redis: Redis, chat_id: int, message_id: int) -> None:
+    """Keep this message until something explicitly clears it."""
+    key = _sticky_key(chat_id)
+    await redis.lpush(key, message_id)
+    await redis.ltrim(key, 0, MAX_TRACKED_STICKY - 1)
+    # A week: long enough for somebody to reset a password over a weekend, short enough
+    # that an abandoned chat does not keep the key forever.
+    await redis.expire(key, 7 * 24 * 3600)
+
+
+async def clear_sticky(bot: Bot, redis: Redis, chat_id: int) -> None:
+    """Delete the kept messages now — the thing they were about has happened."""
+    key = _sticky_key(chat_id)
+    ids = await redis.lrange(key, 0, -1)
+    if not ids:
+        return
+    await redis.delete(key)
+    for raw in ids:
+        try:
+            await bot.delete_message(chat_id, int(raw))
+        except (TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter):
             pass

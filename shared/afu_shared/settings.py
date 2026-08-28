@@ -45,6 +45,20 @@ class Settings(BaseSettings):
     oauth_debug_log_userinfo: bool = True
     oauth_allowed_user_types: str = "employee"
 
+    # --- Outgoing mail (password reset only) ---
+    #: Empty smtp_host disables sending. The reset flow then tells the user to contact RTM
+    #: rather than pretending a mail went out — a silent no-op is the one behaviour that
+    #: leaves somebody waiting for an email forever.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "RTM Murojaatlar <no-reply@afu.uz>"
+    #: STARTTLS on the standard submission port. Set false for an implicit-TLS server on 465.
+    smtp_starttls: bool = True
+    #: How long a reset link stays usable.
+    password_reset_ttl_minutes: int = 60
+
     # --- deployment ---
     public_base_url: str = "https://rtm.afu.uz"
     cookie_secure: bool = True

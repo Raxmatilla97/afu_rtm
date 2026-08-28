@@ -51,6 +51,32 @@ class Employee(TimestampMixin, Base):
     access_revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     access_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- Quick login (id number + local password), for staff whose HEMIS account is not
+    # --- reachable because HEMIS now signs in through One-ID.
+    #: bcrypt hash. Null means nobody has claimed this row yet — the first person to type
+    #: this id number in the bot or on the web sets it.
+    quick_password_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: Where a forgotten password is sent. Asked for right after the password is set,
+    #: because a local password with no way back is a support call waiting to happen.
+    recovery_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: SHA-256 of the token that was mailed out, never the token itself.
+    password_reset_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    password_reset_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Consecutive wrong passwords, reset on any success. Paired with the lock below so a
+    #: list of employee id numbers cannot be walked with a password guesser.
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    login_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
     telegram_username: Mapped[str | None] = mapped_column(String, nullable=True)
     # Telegram-verified phone (from the contact share). Distinct from hemis_phone, which HEMIS reports
