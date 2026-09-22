@@ -400,6 +400,8 @@ export interface GroupMessageDeleteResult {
   deleted: number;
   /** Already gone before we asked — a moderator got there first. */
   already_gone: number;
+  /** Reply lines taken down with the card they quoted, without being ticked themselves. */
+  cascaded: number;
   /** Refused by Telegram, each with its reason. */
   failed: string[];
 }

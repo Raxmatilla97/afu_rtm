@@ -49,6 +49,39 @@ function refOf(key: string): GroupMessageRef {
 }
 
 /**
+ * Read a Telegram message link, or a bare message id, into the pair the API needs.
+ *
+ * `https://t.me/c/1234567890/456` is what "Copy Message Link" produces in a private
+ * supergroup, and the number after `/c/` is the chat id with its `-100` prefix stripped —
+ * so the link identifies the group as well, and the caller does not have to have picked the
+ * right one. A public group's link (`t.me/name/456`) carries no id, and a bare number
+ * carries neither, so both fall back to whichever chat is selected on the page.
+ *
+ * Returns null when there is no message id to be found at all.
+ */
+export function parseMessageRef(
+  input: string,
+  fallbackChatId: number | null,
+): GroupMessageRef | null {
+  const text = input.trim();
+  if (!text) return null;
+
+  const privateLink = text.match(/t\.me\/c\/(\d+)\/(?:\d+\/)?(\d+)/);
+  if (privateLink) {
+    return {
+      chat_id: Number(`-100${privateLink[1]}`),
+      message_id: Number(privateLink[2]),
+    };
+  }
+
+  // A public link, or somebody who typed only the number. Either way the id is the last
+  // run of digits, and the chat has to come from the picker.
+  const tail = text.match(/(\d+)\s*$/);
+  if (!tail || fallbackChatId === null) return null;
+  return { chat_id: fallbackChatId, message_id: Number(tail[1]) };
+}
+
+/**
  * What the bot is currently showing the RTM groups, and the way to take it back down.
  *
  * The page exists because the group is the one surface nobody could edit from here. A card
@@ -146,7 +179,9 @@ export function GroupMessagesPage() {
           (cards
             ? `Shundan ${cards} tasi murojaat kartochkasi — o'chirilsa, o'sha murojaat ` +
               "guruhda boshqa ko'rinmaydi va holati o'zgarganda ham qayta chiqmaydi. " +
-              "Murojaatning o'zi saytda qoladi.\n\n"
+              "Murojaatning o'zi saytda qoladi.\n" +
+              "Kartochka ostidagi izohlar ham birga o'chiriladi — aks holda ular " +
+              "«Удалённое сообщение» ostida osilib qoladi.\n\n"
             : "") +
           "Buni ortga qaytarib bo'lmaydi.",
       )
@@ -158,11 +193,26 @@ export function GroupMessagesPage() {
     setNotice(null);
     setError(null);
     try {
-      const result = await groupMessagesApi.remove(keys.map(refOf));
+      await send(keys.map(refOf));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** The one place a delete is actually issued, so both entry points report it the same way. */
+  async function send(refs: GroupMessageRef[]) {
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await groupMessagesApi.remove(refs);
       const parts: string[] = [];
       if (result.deleted) parts.push(`${result.deleted} ta xabar guruhdan o'chirildi`);
       if (result.already_gone)
         parts.push(`${result.already_gone} tasi allaqachon o'chirilgan edi`);
+      // Named out loud: a delete that removes five messages when one was ticked has to say
+      // so, otherwise the count on screen looks like a bug.
+      if (result.cascaded)
+        parts.push(`kartochka ostidagi ${result.cascaded} ta izoh ham olib tashlandi`);
       setNotice(parts.join(", ") || null);
       if (result.failed.length) {
         setError(`O'chirib bo'lmadi — ${result.failed.join("; ")}`);
@@ -170,6 +220,40 @@ export function GroupMessagesPage() {
       await Promise.all([load(), loadChats()]);
     } catch (e) {
       setError(describeError(e));
+    }
+  }
+
+  /**
+   * Delete something the list does not know about.
+   *
+   * Telegram gives a bot no way to read a group's history, so anything posted before this
+   * log existed can never appear in the table above — and those are exactly the leftovers
+   * an admin wants gone. A message id is all `deleteMessage` needs, though, and Telegram
+   * hands one over on every message through "Copy Message Link".
+   */
+  async function removeByLink(input: string) {
+    const ref = parseMessageRef(input, chatFilter);
+    if (!ref) {
+      setError(
+        "Havola yoki xabar raqamini tushunib bo'lmadi. Telegramda xabarni bosib turib " +
+          "«Havolani nusxalash» ni tanlang, yoki avval yuqoridan guruhni tanlab, faqat " +
+          "xabar raqamini yozing.",
+      );
+      return;
+    }
+    const chat = chats.find((c) => c.chat_id === ref.chat_id);
+    if (
+      !window.confirm(
+        `${chat?.title || `#${ref.chat_id}`} guruhidan ${ref.message_id}-raqamli xabar ` +
+          "o'chiriladi.\n\nBu bot yuborgan xabar bo'lishi kerak — bot o'zga xabarlarni " +
+          "faqat administrator bo'lgandagina o'chira oladi. Buni ortga qaytarib bo'lmaydi.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await send([ref]);
     } finally {
       setBusy(false);
     }
@@ -282,22 +366,31 @@ export function GroupMessagesPage() {
       )}
 
       <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        <div className="mb-1 font-semibold">⚠️ Bilib qo'ying</div>
-        <ul className="list-disc space-y-0.5 pl-5">
+        <div className="mb-1 font-semibold">⚠️ Nega ro'yxatda hamma xabar yo'q?</div>
+        <p>
+          Telegram botga guruh tarixini o'qish imkonini bermaydi — bot faqat{" "}
+          <b>o'zi yuborgan paytda yozib qolgan</b> xabarlarini biladi. Xabarlarni yozib
+          borish 2026-yil sentabrida qo'shildi, shuning uchun:
+        </p>
+        <ul className="mt-2 list-disc space-y-0.5 pl-5">
           <li>
-            O'chirish uchun bot guruhda <b>administrator</b> bo'lishi va «Xabarlarni
-            o'chirish» huquqiga ega bo'lishi kerak — aks holda Telegram rad etadi va buni
-            shu yerda ko'rasiz.
+            <b>Kartochkalar</b> — hammasi ko'rinadi, ular boshidan beri yozib kelingan.
           </li>
           <li>
-            Kartochka o'chirilsa, murojaat guruhda boshqa ko'rinmaydi va holati o'zgarganda
-            qayta chiqmaydi. Murojaatning o'zi saytda saqlanib qoladi.
+            <b>Izohlar, muddat ogohlantirishlari, ulanish xabarlari</b> — faqat shu
+            yangilanishdan keyin yuborilganlari. Eskilarini pastdagi{" "}
+            <b>«Havola orqali o'chirish»</b> orqali olib tashlaysiz.
           </li>
           <li>
-            📎 Fayllar 10 daqiqadan so'ng bot tomonidan o'zi o'chiriladi — ro'yxatda faqat
-            hali turganlari ko'rinadi.
+            📎 Fayllar 10 daqiqada bot tomonidan o'zi o'chadi — ro'yxatda faqat hali
+            turganlari bo'ladi.
           </li>
         </ul>
+        <p className="mt-2">
+          O'chirish uchun bot guruhda <b>administrator</b> bo'lishi va «Xabarlarni
+          o'chirish» huquqiga ega bo'lishi shart — aks holda Telegram rad etadi va sabab
+          shu yerda yoziladi.
+        </p>
       </div>
 
       {/* Chat picker. Tiles rather than a select: there are rarely more than three groups,
@@ -403,7 +496,95 @@ export function GroupMessagesPage() {
           </button>
         </div>
       )}
+
+      <ManualDelete
+        busy={busy}
+        chats={chats}
+        chatFilter={chatFilter}
+        onChat={(id) => setFilter({ chat: id })}
+        onSubmit={removeByLink}
+      />
     </div>
+  );
+}
+
+/**
+ * The escape hatch for anything the list cannot know about.
+ *
+ * Which is a real category, not an edge case: Telegram offers bots no way to read a group's
+ * history, so every message the bot sent before it started keeping a log is invisible here
+ * for ever. Deleting one needs nothing but its id, and Telegram gives that away on every
+ * message through "Copy Message Link" — so the fix is a box to paste it into.
+ */
+function ManualDelete({
+  busy,
+  chats,
+  chatFilter,
+  onChat,
+  onSubmit,
+}: {
+  busy: boolean;
+  chats: GroupChat[];
+  chatFilter: number | null;
+  onChat: (id: number | null) => void;
+  onSubmit: (input: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (busy || !value.trim()) return;
+        await onSubmit(value);
+        setValue("");
+      }}
+      className="mt-8 rounded-xl border border-slate-200 bg-white p-5"
+    >
+      <div className="mb-1 font-semibold text-slate-800">
+        🔗 Ro'yxatda yo'q xabarni havola orqali o'chirish
+      </div>
+      <p className="mb-3 text-sm text-slate-500">
+        Telegramda kerakli bot xabarini bosib turing → <b>«Havolani nusxalash»</b> →
+        shu yerga qo'ying. Eski izohlar, muddat ogohlantirishlari va boshqa qolgan
+        xabarlarni shu yo'l bilan tozalaysiz. Havola o'rniga faqat xabar raqamini ham
+        yozsa bo'ladi — u holda guruhni yonidagi ro'yxatdan tanlang.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="https://t.me/c/1234567890/456"
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-96"
+        />
+        <select
+          value={chatFilter ?? ""}
+          onChange={(e) => onChat(e.target.value ? Number(e.target.value) : null)}
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto"
+        >
+          <option value="">Guruhni tanlang</option>
+          {chats.map((chat) => (
+            <option key={chat.chat_id} value={chat.chat_id}>
+              {chat.title || `#${chat.chat_id}`}
+            </option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          disabled={busy || !value.trim()}
+          className="min-h-11 rounded-lg bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          🗑 O'chirish
+        </button>
+      </div>
+
+      <p className="mt-2 text-xs text-slate-400">
+        Faqat bot yuborgan xabarlar uchun ishlatiladi. Bot guruhda administrator bo'lsa,
+        Telegram texnik jihatdan boshqa a'zolarning xabarini ham o'chirishga ruxsat beradi —
+        shuning uchun havolani qo'yishdan oldin tekshiring.
+      </p>
+    </form>
   );
 }
 

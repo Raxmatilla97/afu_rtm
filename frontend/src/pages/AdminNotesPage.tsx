@@ -123,6 +123,69 @@ export function AdminNotesPage() {
           bo'limi va telefon raqami bo'ladi. Shuning uchun botni istalgan odam istalgan chatga
           qo'shib, universitet bo'yicha barcha murojaatlarni o'qiy olmasligi kerak.
         </Callout>
+
+        <h3 className="mb-2 mt-6 text-sm font-semibold text-slate-800">
+          📢 Guruhdagi bot xabarlarini tozalash
+        </h3>
+        <p className="mb-3 text-sm text-slate-600">
+          Chap menyudagi <b>«Guruhdagi xabarlar»</b> sahifasida bot guruhlarga yuborgan
+          xabarlar ro'yxati turadi va ularni shu yerdan o'chirish mumkin — xato yuborilgan
+          murojaat kartochkasi, bitta ish ostida yig'ilib qolgan izohlar, allaqachon hal
+          bo'lgan ish bo'yicha muddat ogohlantirishi va hokazo.
+        </p>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card tone="brand" title="✅ Nima o'chiriladi">
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <b>🎫 Murojaat kartochkasi</b> — o'chirilsa, murojaat guruhda boshqa
+                ko'rinmaydi va holati o'zgarganda qayta chiqmaydi. Murojaatning o'zi saytda
+                saqlanadi. Kartochka ostidagi izohlar ham birga o'chadi.
+              </li>
+              <li>
+                <b>💬 Izohlar</b> («Falonchi o'z zimmasiga oldi»), <b>🔴 muddat
+                ogohlantirishlari</b>, <b>👋 ulanish xabari</b>, <b>📎 qayta yuborilgan
+                fayllar</b>.
+              </li>
+              <li>
+                Murojaat butunlay o'chirilganda uning kartochkasi va izohlari guruhdan
+                avtomatik olib tashlanadi.
+              </li>
+            </ul>
+          </Card>
+          <Card tone="red" title="⚠️ Ikki shart">
+            <p>
+              <b>1. Bot guruhda administrator bo'lishi kerak</b> va unda «Xabarlarni
+              o'chirish» huquqi bo'lishi shart. Aks holda Telegram rad etadi — sabab
+              sahifada yoziladi.
+            </p>
+            <p className="mt-2">
+              <b>2. Ro'yxatda faqat bot yozib qolgan xabarlar bo'ladi.</b> Telegram botga
+              guruh tarixini o'qishga ruxsat bermaydi, shuning uchun xabarlarni yozib borish
+              qo'shilgunga qadar (2026-yil sentabr) yuborilgan <i>izohlar</i> ro'yxatga
+              tushmaydi. Kartochkalar esa boshidan beri yozib kelingan — ular hammasi
+              ko'rinadi.
+            </p>
+          </Card>
+        </div>
+
+        <Callout tone="amber" title="Eski xabarni qanday o'chirish mumkin">
+          <p>
+            «Guruhdagi xabarlar» sahifasining pastida <b>«🔗 Ro'yxatda yo'q xabarni havola
+            orqali o'chirish»</b> bo'limi bor. Tartibi:
+          </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>Telegramda kerakli bot xabarini bosib turing;</li>
+            <li>
+              <b>«Havolani nusxalash»</b> (Copy Message Link) ni tanlang;
+            </li>
+            <li>havolani sahifadagi maydonga qo'ying va «🗑 O'chirish» ni bosing.</li>
+          </ol>
+          <p className="mt-2">
+            Havola <code className="rounded bg-slate-100 px-1">t.me/c/…/456</code> ko'rinishida
+            bo'lsa, guruh ham o'zi aniqlanadi. Faqat raqam yozsangiz — avval guruhni
+            ro'yxatdan tanlang.
+          </p>
+        </Callout>
       </Section>
 
       <Section
@@ -365,6 +428,63 @@ export function AdminNotesPage() {
           «Bu murojaat sizga biriktirilmagan» degan xabar chiqadi. Boshliq va Admin esa
           barcha murojaatlarni ko'radi — chunki ishni ular taqsimlaydi.
         </Callout>
+
+        <h3 className="mb-2 mt-6 text-sm font-semibold text-slate-800">
+          👑 Topshiriq berish — faqat Boshliq roli
+        </h3>
+        <p className="mb-3 text-sm text-slate-600">
+          Oddiy murojaat navbatga «egasiz» tushadi va xodimlar o'zlari oladi.{" "}
+          <b>Topshiriq</b> esa — <b>muddat</b> va <b>mas'ul xodimlar</b> belgilangan holda
+          yuborilgan murojaat. Uni faqat <b>Boshliq</b> roliga ega xodim yubora oladi.
+        </p>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card tone="red" title="Faqat Admin roli — mumkin emas">
+            <p>
+              Admin — tizimni boshqarish roli (xodimlar, bo'limlar, sozlamalar). Muddat va
+              bajaruvchi belgilash RTM boshlig'ining qarori, shuning uchun bunday xodim
+              oddiy murojaat yuboradi. Saytda ham, botda ham buning sababi yozib
+              ko'rsatiladi.
+            </p>
+          </Card>
+          <Card tone="brand" title="Boshliq — mumkin">
+            <p>
+              Guruhdagi kartochka <b>«👑 BOSHLIQ TOPSHIRIG'I»</b> sarlavhasi bilan chiqadi va
+              boshqa murojaatlardan ajralib turadi.
+            </p>
+          </Card>
+          <Card tone="brand" title="Admin + Boshliq — mumkin">
+            <p>
+              Ikkala rol ham bo'lsa — mumkin, lekin kartochkada <b>«🛡 ADMIN TOPSHIRIG'I»</b>{" "}
+              deb yoziladi: ikkisidan yuqorisi ko'rsatiladi.
+            </p>
+          </Card>
+        </div>
+
+        <Callout tone="brand" title="Topshiriq qayerdan yuboriladi">
+          <p>
+            <b>Saytda:</b> «Yangi topshiriq» sahifasi Boshliq uchun kengaytirilgan
+            ko'rinishda ochiladi — muddat tugmalari (1 soat, 2 soat, 6 soat, 1 kun, 2 kun,
+            1 hafta yoki aniq sana) va xodimlar ro'yxati.
+          </p>
+          <p className="mt-2">
+            <b>Botda:</b> «👑 Yangi topshiriq» → kategoriya → tavsif → fayl → <b>muddat</b>{" "}
+            → <b>mas'ul xodimlar</b>. Birinchi tanlangan xodim ⭐ mas'ul bo'ladi, har biriga
+            Telegram orqali darhol xabar boradi.
+          </p>
+          <p className="mt-2">
+            Muddat ham, bajaruvchi ham ixtiyoriy — ikkalasi bo'sh qoldirilsa, oddiy
+            murojaatdek navbatga tushadi. Muddat o'tib ketsa, kartochka guruhda qizil
+            «🔴 MUDDAT O'TDI» holatiga o'tadi va xodimlarga eslatma boradi.
+          </p>
+        </Callout>
+
+        <Callout tone="slate" title="Kartochkalarda F.I — otasining ismisiz">
+          Telegramdagi barcha kartochka va xabarlarda ism <b>familiya + ism</b> ko'rinishida
+          yoziladi («Fayziyev Raxmatilla»), otasining sharifi ko'rsatilmaydi. Bu faqat
+          ko'rinish qoidasi: bazada va saytdagi xodim profilida to'liq F.I.SH saqlanib
+          qoladi. Sabab — bir kartochkada bir necha bajaruvchi bo'lganda to'liq ismlar uch
+          qatorga bo'linib ketardi.
+        </Callout>
       </Section>
 
       <Section
@@ -398,6 +518,20 @@ export function AdminNotesPage() {
               orqali sabab bilan yoziladi, qoldiq esa shu yozuvlarning yig'indisi. Shuning
               uchun «12 ta toner olindi, 3 tasi qoldi — qolgani qayerga ketdi?» degan savolga
               javob bor.
+            </p>
+          </Card>
+          <Card tone="slate" title="🗑 Hisobdan chiqarilganlar">
+            <p>
+              Inventar sahifasida ikkita bo'lim bor: <b>«Ombor qoldig'i»</b> va{" "}
+              <b>«Hisobdan chiqarilganlar»</b>. Ikkinchisi — alohida reyestr: qachon, nima,
+              qancha, nega, kim chiqargan, qiymati va bog'liq murojaat. Sana oralig'i,
+              kategoriya va matn bo'yicha filtrlanadi; yuqoridagi ko'rsatkichlar butun
+              tanlangan davr bo'yicha hisoblanadi, sahifa almashtirilganda o'zgarmaydi.
+            </p>
+            <p className="mt-2">
+              Yozuv «± Harakat» → <b>«🗑 Hisobdan chiqarish»</b> sababi bilan qo'shiladi va
+              o'chirilmaydi. Xato bo'lsa <b>«✏️ Tuzatish»</b> harakati bilan to'g'rilanadi —
+              tarix hech qachon qayta yozilmaydi.
             </p>
           </Card>
           <Card tone="slate" title="💿 RTM Soft">
@@ -470,11 +604,11 @@ const ROLE_ROWS = [
   },
   {
     role: "Boshliq",
-    can: "Barcha murojaatlarni ko'radi, xodimga tayinlaydi va murojaatdan chiqaradi, muddat qo'yadi, noto'g'ri murojaatni qaytaradi, inventar va soft bo'limlariga yozadi, RTM guruhini ulaydi va uzadi.",
+    can: "Barcha murojaatlarni ko'radi, xodimga tayinlaydi va murojaatdan chiqaradi, muddat qo'yadi, noto'g'ri murojaatni qaytaradi, inventar va soft bo'limlariga yozadi, RTM guruhini ulaydi va uzadi. Yagona rol — muddat va bajaruvchi belgilab «topshiriq» yubora oladi.",
   },
   {
     role: "Admin (HEMIS hisobi)",
-    can: "Boshliqning barcha huquqlari (guruhni ulash va uzish ham), ustiga admin panel: xodimlar rollari, bo'limlar, HEMIS sinxronizatsiyasi va shu sahifa.",
+    can: "Boshliqning deyarli barcha huquqlari (guruhni ulash va uzish ham), ustiga admin panel: xodimlar rollari, bo'limlar, HEMIS sinxronizatsiyasi, guruhdagi bot xabarlari va shu sahifa. Topshiriq yubora olmaydi — buning uchun Boshliq roli ham kerak.",
   },
   {
     role: "Panel admin (email/parol)",

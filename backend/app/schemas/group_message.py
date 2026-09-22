@@ -97,6 +97,10 @@ class GroupMessageDeleteResult(BaseModel):
     #: Already gone before this call — a moderator got there first. Counted separately so
     #: the reply does not claim credit for them.
     already_gone: int = 0
+    #: Reply lines taken down along with the card they quoted. Not asked for by name, so
+    #: they are reported by name: a delete that removes five messages when one was ticked
+    #: has to say so.
+    cascaded: int = 0
     #: Refused by Telegram, each with the reason, so the fix ("make the bot an admin") is
     #: on screen instead of in a log file.
     failed: list[str] = []

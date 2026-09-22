@@ -214,6 +214,40 @@ async def list_group_messages(
     return rows[offset : offset + size]
 
 
+async def _delete_notes_of(
+    session: AsyncSession, chat_id: int, request_id: int
+) -> int:
+    """Take down the reply lines a just-deleted card was holding up. Returns how many went.
+
+    Only the ones we logged, and only in the same chat — the same card in another group is
+    still standing and its notes still read correctly there.
+
+    A note the bot never recorded (anything posted before this log existed) cannot be found
+    from here; the panel's "delete by link" box is the way to those.
+    """
+    notes = list(
+        (
+            await session.execute(
+                select(GroupMessage).where(
+                    GroupMessage.chat_id == chat_id,
+                    GroupMessage.request_id == request_id,
+                )
+            )
+        ).scalars()
+    )
+
+    gone = 0
+    for note in notes:
+        outcome = await delete_message(chat_id, note.message_id)
+        if not outcome.ok:
+            # Left in the table on purpose: it is still in the group, so the panel should
+            # keep offering it rather than pretend it dealt with it.
+            continue
+        await session.delete(note)
+        gone += 1
+    return gone
+
+
 @router.post("/delete", response_model=GroupMessageDeleteResult)
 async def delete_group_messages(
     payload: GroupMessageDelete,
@@ -229,6 +263,16 @@ async def delete_group_messages(
     The other order would let a refused delete — the usual cause being a bot that is not a
     group administrator — quietly erase the panel's only record of a message that is still
     sitting in the chat.
+
+    **Nothing here requires the message to be in our tables.** A ``(chat_id, message_id)``
+    pair is all Telegram needs, and the pair is all this takes — which is what lets the
+    panel clear out messages the bot posted before it started keeping a log. The rows are
+    cleaned up if they happen to exist.
+
+    Deleting a **card** also takes down the reply lines underneath it. Those notes quote the
+    card, so once it is gone Telegram renders each of them under "Удалённое сообщение" —
+    leftovers pointing at a message nobody can read, which is the exact mess this page was
+    built to clear rather than to create.
     """
     refs = list(dict.fromkeys((m.chat_id, m.message_id) for m in payload.messages))
     if not refs:
@@ -243,6 +287,17 @@ async def delete_group_messages(
 
     result = GroupMessageDeleteResult()
     for chat_id, message_id in refs:
+        # Read before the delete: once the row is gone there is no way back to the request
+        # whose notes have just been orphaned.
+        card = (
+            await session.execute(
+                select(RequestGroupPost).where(
+                    RequestGroupPost.chat_id == chat_id,
+                    RequestGroupPost.message_id == message_id,
+                )
+            )
+        ).scalar_one_or_none()
+
         outcome = await delete_message(chat_id, message_id)
         if not outcome.ok:
             result.failed.append(f"{message_id}: {outcome.error}")
@@ -253,9 +308,9 @@ async def delete_group_messages(
                 GroupMessage.chat_id == chat_id, GroupMessage.message_id == message_id
             )
         )
-        # A card's row goes too. Without it the worker keeps editing a message that is no
-        # longer there on every status change, and publish_request_card would never post a
-        # replacement because it only posts where no row exists.
+        # The card's own row goes too. Without it the worker keeps editing a message that is
+        # no longer there on every status change, and publish_request_card would never post
+        # a replacement because it only posts where no row exists.
         await session.execute(
             sql_delete(RequestGroupPost).where(
                 RequestGroupPost.chat_id == chat_id,
@@ -266,6 +321,9 @@ async def delete_group_messages(
             result.already_gone += 1
         else:
             result.deleted += 1
+
+        if card is not None:
+            result.cascaded += await _delete_notes_of(session, chat_id, card.request_id)
 
     if result.deleted or result.already_gone:
         await record_for(
