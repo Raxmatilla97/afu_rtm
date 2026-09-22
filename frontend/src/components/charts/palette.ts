@@ -40,14 +40,40 @@ export const INK = {
   grid: "#e2e8f0",
 } as const;
 
-/** Order matters: it is the slot assignment for the five request statuses. */
+/**
+ * Every request status, in the order a request travels through them.
+ *
+ * All seven, which it was not: `waiting` and `returned` were missing, so the distribution
+ * bar and the table both under-counted against the "Jami murojaat" tile printed directly
+ * above them. A chart that does not add up to its own total is worse than no chart.
+ */
 export const STATUS_ORDER = [
   "new",
   "assigned",
   "in_progress",
+  "waiting",
   "completed",
   "cancelled",
+  "returned",
 ] as const;
+
+/**
+ * One colour per status, assigned by meaning rather than by slot number.
+ *
+ * Request status is state, not series, which is what `STATUS` above is reserved for — so
+ * the three terminal states take their semantic colours (done is green, sent back is red,
+ * cancelled is grey) and only the four live ones draw from the validated series ramp.
+ * SERIES[2] is skipped: its aqua sits next to the green used for `completed`.
+ */
+export const STATUS_COLORS: Record<string, string> = {
+  new: SERIES[0],
+  assigned: SERIES[1],
+  in_progress: SERIES[3],
+  waiting: SERIES[4],
+  completed: STATUS.good,
+  cancelled: INK.muted,
+  returned: STATUS.critical,
+};
 
 export function seriesColor(index: number): string {
   // Clamped rather than wrapped: a cycled palette gives two series the same colour, which

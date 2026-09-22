@@ -42,7 +42,19 @@ TOP_STAFF = 10
 
 
 def _scope_stmt(stmt, caller: User | Employee):
-    if isinstance(caller, Employee):
+    """Narrow a query to what this caller is entitled to count.
+
+    The same three-way rule the rest of the API uses, and it was missing its first branch:
+    a **Boshliq or Admin** sees the whole centre. Without that check an employee flagged
+    Admin fell through to the staff branch and was counted as an ordinary staffer — so the
+    head of RTM, who is assigned to nothing because they hand work out rather than do it,
+    opened the statistics page and read "0 murojaat" over a queue full of them.
+
+    ``can_manage_assignments`` is the same predicate ``list_requests`` and
+    ``_check_can_view`` test, so the three cannot drift: whoever may read every request may
+    count every request.
+    """
+    if isinstance(caller, Employee) and not caller.can_manage_assignments:
         if caller.is_rtm_staff:
             # Through the assignee table so shared jobs count for everyone who worked on
             # them, not only for whoever picked the request up first.
@@ -52,6 +64,18 @@ def _scope_stmt(stmt, caller: User | Employee):
         else:
             stmt = stmt.where(Request.requester_employee_id == caller.id)
     return stmt
+
+
+#: What ``_scope_stmt`` actually applied, named so the page can label its own numbers.
+SCOPE_ALL = "all"
+SCOPE_ASSIGNED = "assigned"
+SCOPE_OWN = "own"
+
+
+def _scope_of(caller: User | Employee) -> str:
+    if not isinstance(caller, Employee) or caller.can_manage_assignments:
+        return SCOPE_ALL
+    return SCOPE_ASSIGNED if caller.is_rtm_staff else SCOPE_OWN
 
 
 @router.get("/summary", response_model=StatsSummary)
@@ -99,9 +123,10 @@ async def stats_overview(
     One endpoint rather than seven: the page shows a single coherent picture, and seven
     independent fetches would let its panels disagree with each other while they arrive.
 
-    Scoped exactly like the rest of the API — an admin sees the whole centre, an RTM
-    staffer sees their own work, everybody else sees what they reported. The page does not
-    have to know which; it draws what it is given.
+    Scoped exactly like the rest of the API — a panel admin, a Boshliq and an Admin see the
+    whole centre, an RTM staffer sees the work assigned to them, everybody else sees what
+    they reported. ``scope`` names which of those the caller got, so the page can say whose
+    numbers it is showing instead of leaving a staffer to wonder why the total is small.
     """
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=31 * TREND_MONTHS)
@@ -127,6 +152,7 @@ async def stats_overview(
     ).scalar_one()
 
     return StatsOverview(
+        scope=_scope_of(caller),
         summary=_summary_from(status_rows),
         monthly=await _monthly(session, caller, since),
         by_category=await _by_category(session, caller),

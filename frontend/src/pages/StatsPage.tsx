@@ -5,8 +5,14 @@ import { ChartCard } from "@/components/charts/Chart";
 import { ColumnChart } from "@/components/charts/ColumnChart";
 import { HBarChart } from "@/components/charts/HBarChart";
 import { ShareBar } from "@/components/charts/ShareBar";
-import { SEQUENTIAL, SERIES, STATUS, STATUS_ORDER } from "@/components/charts/palette";
-import { STATUS_LABELS, type StatsOverview } from "@/types";
+import {
+  SEQUENTIAL,
+  SERIES,
+  STATUS,
+  STATUS_COLORS,
+  STATUS_ORDER,
+} from "@/components/charts/palette";
+import { STATUS_LABELS, type StatsOverview, type StatsSummary } from "@/types";
 
 const MONTH_NAMES = [
   "yan", "fev", "mar", "apr", "may", "iyn",
@@ -25,6 +31,32 @@ function duration(hours: number | null): string {
   if (hours < 48) return `${hours.toFixed(1)} soat`;
   return `${(hours / 24).toFixed(1)} kun`;
 }
+
+/** The summary re-keyed by status, so the bar and the table read it the same way. */
+function countsByStatus(summary: StatsSummary): Record<string, number> {
+  return {
+    new: summary.new_count,
+    assigned: summary.assigned_count,
+    in_progress: summary.in_progress_count,
+    waiting: summary.waiting_count,
+    completed: summary.completed_count,
+    cancelled: summary.cancelled_count,
+    returned: summary.returned_count,
+  };
+}
+
+/**
+ * Whose numbers these are.
+ *
+ * Printed under the title because the page is scoped server-side and used to say nothing
+ * about it: an RTM staffer saw their own three jobs under the heading "Statistika" and had
+ * no way to tell that from the centre having handled three.
+ */
+const SCOPE_NOTES: Record<string, string> = {
+  all: "Butun RTM bo'yicha — barcha murojaatlar",
+  assigned: "Faqat sizga biriktirilgan murojaatlar bo'yicha",
+  own: "Faqat siz yuborgan murojaatlar bo'yicha",
+};
 
 export function StatsPage() {
   const [data, setData] = useState<StatsOverview | null>(null);
@@ -48,23 +80,27 @@ export function StatsPage() {
   if (!data) return <div className="text-slate-400">Yuklanmoqda...</div>;
 
   const { summary, resolution } = data;
-  const open = summary.new_count + summary.assigned_count + summary.in_progress_count;
+  // Everything still needing somebody, waiting-for-a-part included — the same four statuses
+  // the server calls open. Leaving `waiting` out made the "Ochiq" tile disagree with the
+  // overdue count next to it.
+  const open =
+    summary.new_count +
+    summary.assigned_count +
+    summary.in_progress_count +
+    summary.waiting_count;
   const completionRate = summary.total_requests
     ? Math.round((summary.completed_count / summary.total_requests) * 100)
     : 0;
   const deadlineTotal = resolution.on_time + resolution.late;
   const onTimeRate = deadlineTotal ? Math.round((resolution.on_time / deadlineTotal) * 100) : null;
 
-  const statusShares = STATUS_ORDER.map((status, index) => ({
+  // All seven statuses, so the bar adds up to the "Jami murojaat" tile above it. A zero
+  // slice renders as nothing, so listing the rarer states costs no width when unused.
+  const statusCounts = countsByStatus(summary);
+  const statusShares = STATUS_ORDER.map((status) => ({
     label: STATUS_LABELS[status],
-    value: {
-      new: summary.new_count,
-      assigned: summary.assigned_count,
-      in_progress: summary.in_progress_count,
-      completed: summary.completed_count,
-      cancelled: summary.cancelled_count,
-    }[status],
-    color: SERIES[index],
+    value: statusCounts[status],
+    color: STATUS_COLORS[status],
   }));
 
   return (
@@ -73,7 +109,7 @@ export function StatsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Statistika</h1>
           <p className="text-sm text-slate-500">
-            Sizga ko'rinadigan murojaatlar bo'yicha umumiy manzara
+            {SCOPE_NOTES[data.scope] ?? SCOPE_NOTES.all}
           </p>
         </div>
         <button
@@ -301,15 +337,7 @@ function TableView({ data }: { data: StatsOverview }) {
         head={["Holat", "Soni"]}
         rows={STATUS_ORDER.map((status) => [
           STATUS_LABELS[status],
-          String(
-            {
-              new: data.summary.new_count,
-              assigned: data.summary.assigned_count,
-              in_progress: data.summary.in_progress_count,
-              completed: data.summary.completed_count,
-              cancelled: data.summary.cancelled_count,
-            }[status],
-          ),
+          String(countsByStatus(data.summary)[status]),
         ])}
       />
       <Table

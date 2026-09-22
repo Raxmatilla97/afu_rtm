@@ -68,6 +68,11 @@ class StatsOverview(BaseModel):
     independent fetches would let its panels disagree with each other while they arrive.
     """
 
+    #: Which slice of the queue these numbers cover: ``all`` for a panel admin, Boshliq or
+    #: Admin, ``assigned`` for an RTM staffer's own workload, ``own`` for everybody else's
+    #: reported requests. Sent so the page can say so out loud — a staffer reading "3 ta
+    #: murojaat" over a centre handling three hundred has to be told which three.
+    scope: str = "all"
     summary: StatsSummary
     monthly: list[MonthlyPoint] = []
     by_category: list[CategoryCount] = []

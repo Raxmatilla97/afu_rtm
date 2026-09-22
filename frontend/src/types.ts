@@ -191,8 +191,12 @@ export interface StatsSummary {
   new_count: number;
   assigned_count: number;
   in_progress_count: number;
+  /** Parked on a part that is not in stock. Counted in the total, so it has to be shown. */
+  waiting_count: number;
   completed_count: number;
   cancelled_count: number;
+  /** Sent back as wrongly filed. Also in the total. */
+  returned_count: number;
 }
 
 export interface MonthlyCount {
@@ -246,6 +250,12 @@ export interface StaffLoad {
 }
 
 export interface StatsOverview {
+  /**
+   * Which slice these numbers cover: "all" for a panel admin, Boshliq or Admin, "assigned"
+   * for a staffer's own workload, "own" for everybody else's reported requests. The page
+   * prints it, so a small total is never mistaken for a broken page.
+   */
+  scope: string;
   summary: StatsSummary;
   monthly: MonthlyPoint[];
   by_category: CategoryCount[];

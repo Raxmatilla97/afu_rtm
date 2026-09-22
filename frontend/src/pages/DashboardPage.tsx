@@ -68,6 +68,9 @@ export function DashboardPage() {
 
   const name = session.kind === "admin" ? session.admin.email : session.kind === "employee" ? session.employee.full_name : "";
 
+  // The last two are shown only when they are not zero. They belong here — they are part of
+  // "Jami murojaatlar" and the row did not add up without them — but a permanent pair of
+  // zeroes in a six-tile row is clutter on every other installation's home page.
   const cards = summary
     ? [
         { label: "Jami murojaatlar", value: summary.total_requests },
@@ -76,6 +79,12 @@ export function DashboardPage() {
         { label: "Jarayonda", value: summary.in_progress_count },
         { label: "Bajarilgan", value: summary.completed_count },
         { label: "Bekor qilingan", value: summary.cancelled_count },
+        ...(summary.waiting_count
+          ? [{ label: "Inventar kutilmoqda", value: summary.waiting_count }]
+          : []),
+        ...(summary.returned_count
+          ? [{ label: "Qaytarib yuborilgan", value: summary.returned_count }]
+          : []),
       ]
     : [];
 
