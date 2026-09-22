@@ -25,6 +25,7 @@ from afu_shared.people import short_name
 from afu_shared.telegram_text import esc
 from afu_shared.models import (
     Employee,
+    Rating,
     Request,
     RequestAttachment,
     RequestMessage,
@@ -509,3 +510,79 @@ async def notify_request_returned(ctx: dict, request_id: int) -> None:
 
     for chat_id in staff_chats:
         await _deliver(chat_id, staff_text, [], request_id=request_id)
+
+
+async def notify_request_rated(ctx: dict, request_id: int) -> None:
+    """Tell the people who did the work what the reporter thought of it.
+
+    The missing half of the rating feature. A score went into the database and onto the
+    leaderboard, the group card grew a row of stars — and the person who actually did the
+    job was told nothing. Somebody could be rated five stars all week and never know, which
+    makes the one piece of feedback in this whole system invisible to its entire audience.
+
+    Sent to each assignee separately rather than announced in the group: a poor score is
+    between the reporter, the staffer and their Boshliq, and the card already carries the
+    average for anyone who needs the public version.
+    """
+    async with session_scope() as session:
+        request = await session.get(Request, request_id)
+        if request is None:
+            logger.error("notify_request_rated: request %s not found", request_id)
+            return
+
+        ratings = list(
+            (
+                await session.execute(select(Rating).where(Rating.request_id == request_id))
+            ).scalars()
+        )
+        if not ratings:
+            logger.info("notify_request_rated: request %s has no rating yet", request_id)
+            return
+
+        score = ratings[0].score
+        comment = ratings[0].comment
+        requester = await session.get(Employee, request.requester_employee_id)
+        display_number = request.display_number
+
+        targets = [
+            row.employee.telegram_user_id
+            for row in await assignees_of(session, request_id)
+            if row.employee and row.employee.telegram_user_id
+        ]
+
+    # Stars rather than "4/5" as the headline: the number is there underneath, but a row of
+    # symbols is what carries at a glance in a chat full of text.
+    stars = "⭐" * score + "☆" * (5 - score)
+    # Three bands, because the same wording cannot serve all of them. Thanking somebody for
+    # two stars reads as sarcasm; treating five as a routine notification wastes the one
+    # moment this system has to say well done.
+    if score >= 4:
+        headline = "🎉 <b>Yaxshi baho oldingiz!</b>"
+        closing = "Rahmat — shu tarzda davom eting. 👏"
+    elif score == 3:
+        headline = "⭐ <b>Xizmatingiz baholandi</b>"
+        closing = "O'rtacha baho. Izoh bo'lsa, keyingi safar nimani yaxshilash mumkinligini ko'rsatadi."
+    else:
+        headline = "⚠️ <b>Past baho oldingiz</b>"
+        closing = (
+            "Murojaatchi xizmatdan qoniqmagan. Sababini aniqlash uchun u bilan bog'laning "
+            "— zarur bo'lsa Boshliqqa ayting."
+        )
+
+    lines = [
+        headline,
+        "",
+        f"🎫 <b>{display_number}</b>",
+        f"{stars} <b>{score}/5</b>",
+    ]
+    if requester:
+        lines.append(f"👤 Murojaatchi: {esc(short_name(requester.full_name))}")
+    if comment:
+        lines.append(f"\n💬 <b>Izohi:</b> {esc(comment)}")
+    lines.append(f"\n{closing}")
+
+    text = "\n".join(lines)
+    keyboard = _keyboard_for(("📋 Murojaatni ochish", AsgCB(act="open", rid=request_id).pack()))
+
+    for chat_id in targets:
+        await _deliver(chat_id, text, [], request_id=request_id, reply_markup=keyboard)

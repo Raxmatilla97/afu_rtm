@@ -66,7 +66,6 @@ export function RequestDetailPage() {
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [deadline, setDeadline] = useState("");
   const [completionNote, setCompletionNote] = useState("");
-  const [ratingScore, setRatingScore] = useState(0);
   const [returning, setReturning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,10 +205,19 @@ export function RequestDetailPage() {
     });
   }
 
-  async function handleRate(score: number) {
+  /**
+   * Record the reporter's verdict, then reload.
+   *
+   * The reload is the point. This used to set a local `ratingScore` and nothing else, so
+   * the stars filled in, the page was refreshed an hour later, and the widget came back
+   * empty — the rating had been saved all along, but every visible trace of it was in
+   * React state that did not survive the reload. Pressing again then produced a bare
+   * "Already rated" in English, which is what made the feature look broken.
+   */
+  async function handleRate(score: number, comment: string) {
     await run(async () => {
-      await requestsApi.rate(requestId, score);
-      setRatingScore(score);
+      await requestsApi.rate(requestId, score, comment || undefined);
+      await load();
     });
   }
 
@@ -442,22 +450,13 @@ export function RequestDetailPage() {
             </div>
           )}
 
-          {isRequester && request.status === "completed" && (
-            <div className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className="mb-2 font-medium text-slate-800">Xizmatni baholang</div>
-              <div className="flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => handleRate(n)}
-                    disabled={busy}
-                    className={`text-2xl ${n <= ratingScore ? "text-amber-400" : "text-slate-300"} hover:text-amber-400`}
-                  >
-                    ★
-                  </button>
-                ))}
-              </div>
-            </div>
+          {request.status === "completed" && (request.rating_score !== null || isRequester) && (
+            <RatingCard
+              request={request}
+              canRate={isRequester && request.can_be_rated}
+              busy={busy}
+              onRate={handleRate}
+            />
           )}
         </div>
 
@@ -489,6 +488,150 @@ export function RequestDetailPage() {
     </div>
   );
 }
+
+/**
+ * The reporter's verdict on the service — given once, then shown for ever.
+ *
+ * It replaces a strip of five stars that wrote to local state and nothing else. Saving
+ * worked; every trace of it vanished on reload, so the widget invited a second press that
+ * the server answers with 409 — which is precisely what made a working feature look dead.
+ *
+ * Three states, and all three have to be drawn, because the same block is read by three
+ * people: the reporter deciding, the reporter coming back afterwards, and the staffer who
+ * did the work and wants to know what was said about it.
+ */
+function RatingCard({
+  request,
+  canRate,
+  busy,
+  onRate,
+}: {
+  request: RequestItem;
+  canRate: boolean;
+  busy: boolean;
+  onRate: (score: number, comment: string) => Promise<void>;
+}) {
+  const [score, setScore] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [comment, setComment] = useState("");
+
+  // Already rated — by this reporter, or as far as a staff member is concerned, at all.
+  if (request.rating_score !== null) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+        <div className="mb-1 font-medium text-amber-900">⭐ Xizmat baholandi</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Stars value={request.rating_score} />
+          <span className="text-sm font-semibold text-amber-900">
+            {request.rating_score}/5
+          </span>
+          <span className="text-xs text-amber-700">{dt(request.rated_at)}</span>
+        </div>
+        {request.rating_comment && (
+          <p className="mt-2 whitespace-pre-wrap text-sm text-amber-900">
+            💬 {request.rating_comment}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-amber-700">
+          Baho bir marta beriladi va o'zgartirilmaydi. Ishni bajargan xodimlarga bu haqda
+          Telegram orqali xabar yuborildi.
+        </p>
+      </div>
+    );
+  }
+
+  // The reporter is looking at a completed job that cannot be rated — nobody was ever
+  // assigned to it, so there is nobody to credit. Said out loud, because a silently absent
+  // control is indistinguishable from a broken one.
+  if (!canRate) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="mb-1 font-medium text-slate-800">Xizmatni baholash</div>
+        <p className="text-sm text-slate-500">
+          Bu murojaatni baholab bo'lmaydi — unda biriktirilgan xodim yo'q, shuning uchun
+          bahoni kimga yozishni tizim aniqlay olmaydi.
+        </p>
+      </div>
+    );
+  }
+
+  const shown = hover || score;
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!score || busy) return;
+        await onRate(score, comment.trim());
+      }}
+      className="rounded-xl border border-amber-200 bg-amber-50/60 p-5"
+    >
+      <div className="mb-1 font-medium text-slate-800">⭐ Xizmatni baholang</div>
+      <p className="mb-3 text-xs text-slate-500">
+        Bahoyingiz ishni bajargan xodimlarga yuboriladi va ularning reytingiga qo'shiladi.
+        Bir marta beriladi — keyin o'zgartirib bo'lmaydi.
+      </p>
+
+      {/* Pressing a star no longer submits. It used to fire the request on click, so a
+          mis-tap was final and there was nowhere to type a comment first. */}
+      <div className="flex flex-wrap items-center gap-1" onMouseLeave={() => setHover(0)}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setScore(n)}
+            onMouseEnter={() => setHover(n)}
+            aria-label={`${n} yulduz`}
+            aria-pressed={score === n}
+            className={`text-3xl leading-none transition-colors ${
+              n <= shown ? "text-amber-400" : "text-slate-300"
+            } hover:text-amber-400`}
+          >
+            ★
+          </button>
+        ))}
+        <span className="ml-2 text-sm text-slate-500">
+          {shown ? SCORE_WORDS[shown] : "Yulduzni tanlang"}
+        </span>
+      </div>
+
+      <textarea
+        rows={2}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Izoh (ixtiyoriy) — nima yaxshi bo'ldi yoki nimani yaxshilash kerak?"
+        className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+      />
+
+      <button
+        type="submit"
+        disabled={!score || busy}
+        className="mt-3 min-h-11 w-full rounded-lg bg-amber-500 px-4 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+      >
+        {busy ? "Yuborilmoqda..." : "⭐ Bahoni yuborish"}
+      </button>
+    </form>
+  );
+}
+
+/** Five glyphs, filled to `value`. Read-only — the input version lives in RatingCard. */
+function Stars({ value }: { value: number }) {
+  return (
+    <span aria-label={`${value} / 5`} className="text-xl leading-none">
+      <span className="text-amber-400">{"★".repeat(value)}</span>
+      <span className="text-amber-200">{"★".repeat(5 - value)}</span>
+    </span>
+  );
+}
+
+/** What each score means, so the reporter is not guessing what four stars says about them. */
+const SCORE_WORDS: Record<number, string> = {
+  1: "Juda yomon",
+  2: "Yomon",
+  3: "O'rtacha",
+  4: "Yaxshi",
+  5: "A'lo",
+};
 
 /**
  * Why a request is being sent back, written to the person who filed it.

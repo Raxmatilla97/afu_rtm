@@ -9,6 +9,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
+from arq import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +24,10 @@ router = Router(name="rating_legacy")
 
 @router.callback_query(F.data.startswith("rate:"))
 async def legacy_rate(
-    callback: CallbackQuery, session: AsyncSession, employee: Employee
+    callback: CallbackQuery,
+    session: AsyncSession,
+    employee: Employee,
+    arq_pool: ArqRedis,
 ) -> None:
     try:
         _, raw_rid, raw_score = callback.data.split(":")
@@ -66,9 +70,15 @@ async def legacy_rate(
         for target_id in targets
     )
     await session.flush()
+    # Committed here rather than left to the middleware: the two jobs below are picked up by
+    # a worker with its own session, which would otherwise find no rating to announce.
+    await session.commit()
+    await arq_pool.enqueue_job("refresh_request_cards", rid)
+    await arq_pool.enqueue_job("notify_request_rated", rid)
 
     if callback.message and callback.message.text:
         await callback.message.edit_text(
-            callback.message.text + f"\n\n⭐ Bahoyingiz: {score}/5. Rahmat!"
+            callback.message.text
+            + f"\n\n⭐ Bahoyingiz: {score}/5. Rahmat! Bajargan xodimlarga xabar berildi."
         )
     await callback.answer("Rahmat!")

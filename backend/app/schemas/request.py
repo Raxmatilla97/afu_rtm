@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from afu_shared.enums import RequestStatus
 from afu_shared.media import kind_label
 from afu_shared.people import role_label
 
@@ -225,6 +226,18 @@ class RequestResponse(BaseModel):
     completion_note: str | None
     returned_at: datetime | None = None
     return_reason: str | None = None
+    #: The reporter's verdict, once they have given one. Sent with every request rather than
+    #: fetched on demand because the interface needs it to decide what to *draw*: without it
+    #: the star widget could not tell a request nobody has rated from one already rated, so
+    #: it reset to empty on every reload and invited a second press that the server refuses.
+    rating_score: int | None = None
+    rating_comment: str | None = None
+    rated_at: datetime | None = None
+    #: Whether a rating would be accepted right now — completed, still unrated, and with
+    #: somebody on it to credit. Decided here so the page does not have to re-implement the
+    #: endpoint's rules and get them subtly wrong.
+    can_be_rated: bool = False
+
     created_at: datetime
     updated_at: datetime
 
@@ -233,6 +246,10 @@ class RequestResponse(BaseModel):
 
     @classmethod
     def from_request(cls, r) -> "RequestResponse":
+        # One press produces one row per assignee, all carrying the same score, so the first
+        # is the whole answer. A list rather than a single row is why this is not simply
+        # r.rating — see the relationship.
+        rating = r.ratings[0] if r.ratings else None
         return cls(
             id=r.id,
             display_number=r.display_number,
@@ -262,6 +279,16 @@ class RequestResponse(BaseModel):
             completion_note=r.completion_note,
             returned_at=r.returned_at,
             return_reason=r.return_reason,
+            rating_score=rating.score if rating else None,
+            rating_comment=rating.comment if rating else None,
+            rated_at=rating.created_at if rating else None,
+            can_be_rated=(
+                r.status == RequestStatus.COMPLETED.value
+                and rating is None
+                # Nobody to credit means nothing to rate; the endpoint refuses it, and an
+                # enabled control that always fails is worse than an absent one.
+                and bool(r.assignees)
+            ),
             created_at=r.created_at,
             updated_at=r.updated_at,
         )

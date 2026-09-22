@@ -10,6 +10,9 @@ from afu_shared.models.category import Category
 from afu_shared.models.employee import Employee
 
 if TYPE_CHECKING:
+    # Both import ``Request``, so naming them at runtime would close the circle. SQLAlchemy
+    # resolves the relationship targets from these strings once every model is registered.
+    from afu_shared.models.rating import Rating
     from afu_shared.models.request_assignee import RequestAssignee
 
 
@@ -63,6 +66,20 @@ class Request(TimestampMixin, Base):
         lazy="selectin",
         viewonly=True,
         order_by="[RequestAssignee.is_primary.desc(), RequestAssignee.assigned_at]",
+    )
+
+    #: What the reporter thought of the service, once they said. One row per person who
+    #: worked on it — the requester rates the service and everyone who delivered it carries
+    #: the score — so this is a list even though the reporter only ever pressed once, and
+    #: anything reading "the rating" wants ``ratings[0]``.
+    #:
+    #: ``viewonly`` and ``selectin`` for the same reasons as ``assignees`` above: rating is
+    #: written in one place, and a page of requests costs one extra query rather than one
+    #: per row. It is here at all because without it the web could not tell an unrated
+    #: request from a rated one — the stars reset on every reload and the reporter was left
+    #: pressing a button that appeared to do nothing.
+    ratings: Mapped[list["Rating"]] = relationship(
+        "Rating", lazy="selectin", viewonly=True, order_by="Rating.id"
     )
 
     assigned_by_user_id: Mapped[int | None] = mapped_column(

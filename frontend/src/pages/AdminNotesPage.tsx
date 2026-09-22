@@ -534,6 +534,23 @@ export function AdminNotesPage() {
               tarix hech qachon qayta yozilmaydi.
             </p>
           </Card>
+          <Card tone="slate" title="⭐ Xizmatni baholash">
+            <p>
+              Murojaat yakunlangach, <b>murojaatchi</b> 1–5 yulduz qo'yadi va xohlasa izoh
+              yozadi. Baho <b>bir marta</b> beriladi, o'zgartirilmaydi va ishni bajargan
+              <b> har bir xodimga</b> yoziladi — birgalikda bajarilgan ish ikkalasining
+              reytingiga ham kiradi.
+            </p>
+            <p className="mt-2">
+              Baho qo'yilishi bilan bajaruvchilarga Telegram orqali xabar boradi (past baho
+              bo'lsa — murojaatchi bilan bog'lanish tavsiyasi bilan), guruhdagi kartochkada
+              yulduzlar paydo bo'ladi, «Top xodimlar» sahifasi yangilanadi.
+            </p>
+            <p className="mt-2">
+              Murojaatda <b>biriktirilgan xodim bo'lmasa</b> baholab bo'lmaydi — bahoni
+              kimga yozishni tizim bilmaydi. Sahifada buning sababi yozib ko'rsatiladi.
+            </p>
+          </Card>
           <Card tone="slate" title="💿 RTM Soft">
             <p>
               Bu yerga yuklangan fayllar botdagi «Soft va drayverlar» bo'limida chiqadi.

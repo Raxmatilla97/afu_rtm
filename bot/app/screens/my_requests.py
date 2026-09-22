@@ -135,8 +135,12 @@ async def build_detail(
             who = "Siz" if author and author.id == employee.id else (author.full_name if author else "RTM")
             lines.append(f"• <i>{esc(who)}:</i> {_ellipsis(_preview_of(msg), 80)}")
 
+    # ``.limit(1)``, and it is load-bearing: one press of the stars writes **one row per
+    # assignee**, so a job two people did together has two identical ratings. Without the
+    # limit this raised MultipleResultsFound and the whole screen failed to render — the
+    # reporter rated their request and then could not open it again.
     rating = (
-        await session.execute(select(Rating).where(Rating.request_id == rid))
+        await session.execute(select(Rating).where(Rating.request_id == rid).limit(1))
     ).scalar_one_or_none()
 
     rows: list[list[InlineKeyboardButton]] = [
@@ -167,7 +171,10 @@ async def build_detail(
             ]
         )
     elif rating is not None:
-        lines.append(f"\n⭐ Bahoyingiz: {rating.score}/5")
+        stars = "⭐" * rating.score + "☆" * (5 - rating.score)
+        lines.append(f"\n{stars} <b>Bahoyingiz: {rating.score}/5</b>")
+        if rating.comment:
+            lines.append(f"💬 <i>{esc(rating.comment)}</i>")
 
     rows.append(
         [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=Nav(to="myreq", page=page).pack())]
@@ -265,7 +272,9 @@ def build_rating_screen(rid: int, page: int, display_number: str) -> Screen:
     return Screen(
         text=(
             f"⭐ <b>{display_number}</b>\n\n"
-            "Xizmat sifatini baholang (1 — yomon, 5 — a'lo):"
+            "Xizmat sifatini baholang (1 — yomon, 5 — a'lo):\n\n"
+            "<i>Bahoingiz ishni bajargan xodimlarga yuboriladi va bir marta beriladi — "
+            "keyin o'zgartirib bo'lmaydi.</i>"
         ),
         keyboard=InlineKeyboardMarkup(
             inline_keyboard=[

@@ -254,11 +254,22 @@ async def set_rating(
     await session.flush()
     await session.commit()
     await arq_pool.enqueue_job("refresh_request_cards", request.id)
+    # The people who did the work are told. Before this the score reached the leaderboard
+    # and the group card and stopped there — the staffer it was about heard nothing.
+    await arq_pool.enqueue_job("notify_request_rated", request.id)
 
+    # One tap, committed immediately, and no follow-up question. A comment step here would
+    # be a second screen the reporter can simply walk away from, and the notification would
+    # then either go out without the comment or not go out at all. Anyone who wants to say
+    # more has the "💬 Yozish" button on the screen below — it reaches the same people and
+    # it already works.
     screen = await screens.build_detail(session, employee, request.id, callback_data.page)
     if screen:
         await render(bot, redis, callback.message.chat.id, screen)
     await send_transient(
         bot, redis, arq_pool, callback.message.chat.id,
-        f"⭐ Bahoyingiz uchun rahmat! ({callback_data.score}/5)",
+        f"⭐ Bahoyingiz uchun rahmat! ({callback_data.score}/5)\n"
+        "Bajargan xodimlarga xabar berildi. Qo'shimcha izoh yozmoqchi bo'lsangiz — "
+        "«💬 Yozish» tugmasini bosing.",
+        ttl=120,
     )

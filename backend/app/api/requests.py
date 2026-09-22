@@ -884,22 +884,46 @@ async def rate_request(
     caller: User | Employee = Depends(get_current_caller),
     session: AsyncSession = Depends(get_db),
 ) -> Rating:
+    """The reporter's verdict on the service, once the job is closed.
+
+    Every refusal here is worded in Uzbek, because every one of them is reachable by simply
+    pressing the stars twice: these messages are shown to the reporter, not to a developer.
+    """
     if not isinstance(caller, Employee):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the requester can rate")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Xizmatni faqat murojaat egasi baholay oladi",
+        )
 
     request = await _get_request_or_404(session, request_id)
     if request.requester_employee_id != caller.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your request")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bu murojaat sizniki emas — faqat murojaat egasi baho bera oladi",
+        )
+    if request.status != RequestStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Murojaat hali yakunlanmagan — baho yakunlangandan so'ng beriladi",
+        )
 
     targets = await assignee_ids(session, request_id)
     if not targets:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request has no assignee")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bu murojaatda bajaruvchi yo'q — baholash uchun kimdir biriktirilgan bo'lishi kerak",
+        )
 
     existing = (
         await session.execute(select(Rating).where(Rating.request_id == request_id).limit(1))
     ).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already rated")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Siz bu murojaatni allaqachon baholagansiz ({existing.score}/5)",
+        )
+
+    comment = (payload.comment or "").strip() or None
 
     # One score, recorded against each person who worked on it. The requester rates the
     # service they received, not an individual — crediting only the primary assignee would
@@ -910,16 +934,28 @@ async def rate_request(
             rated_employee_id=employee_id,
             rated_by_employee_id=caller.id,
             score=payload.score,
-            comment=payload.comment,
+            comment=comment,
         )
         for employee_id in targets
     ]
     session.add_all(ratings)
     await session.flush()
+
+    await record_for(
+        session,
+        caller,
+        action="request.rate",
+        target=request.display_number,
+        detail=f"{payload.score}/5" + (f" — {comment}" if comment else ""),
+    )
     await session.commit()
 
     pool = await get_arq_pool()
     await pool.enqueue_job("refresh_request_cards", request_id)
+    # The people who did the work are told. Without this the score went into the leaderboard
+    # and nowhere else: somebody could be rated five stars for a week and never know it,
+    # which makes the whole exercise invisible to exactly the people it is about.
+    await pool.enqueue_job("notify_request_rated", request_id)
 
     await session.refresh(ratings[0])
     return ratings[0]

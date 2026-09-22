@@ -143,6 +143,12 @@ export interface RequestItem {
   /** Set when a Boshliq or Admin sent the request back as wrongly filed. */
   returned_at: string | null;
   return_reason: string | null;
+  /** The reporter's verdict, once given. Null means nobody has rated this yet. */
+  rating_score: number | null;
+  rating_comment: string | null;
+  rated_at: string | null;
+  /** Whether the server would accept a rating right now — completed, unrated, assigned. */
+  can_be_rated: boolean;
   created_at: string;
   updated_at: string;
 }
