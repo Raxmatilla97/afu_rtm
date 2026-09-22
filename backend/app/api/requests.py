@@ -14,6 +14,7 @@ from afu_shared.activity import record_for
 from afu_shared.enums import AttachmentKind, MessageVisibility, RequestSource, RequestStatus
 from afu_shared.models import (
     Employee,
+    GroupMessage,
     InventoryMovement,
     Rating,
     Request,
@@ -538,6 +539,17 @@ async def _purge_request(session: AsyncSession, request: Request) -> list[tuple[
         ).scalars()
     )
     card_posts = [(post.chat_id, post.message_id) for post in posts]
+    # The reply lines and overdue alarms that piled up under the card go with it. Deleting a
+    # request used to leave "🙋 X took RTM-000042 on" sitting in the group, pointing at a
+    # number nothing answers to any more.
+    notes = list(
+        (
+            await session.execute(
+                select(GroupMessage).where(GroupMessage.request_id == request_id)
+            )
+        ).scalars()
+    )
+    card_posts.extend((note.chat_id, note.message_id) for note in notes)
 
     attachments = list(
         (
@@ -567,6 +579,7 @@ async def _purge_request(session: AsyncSession, request: Request) -> list[tuple[
         RequestAssignee,
         RequestStatusHistory,
         RequestGroupPost,
+        GroupMessage,
     ):
         await session.execute(sql_delete(model).where(model.request_id == request_id))
 

@@ -60,6 +60,7 @@ ACTION_LABELS: dict[str, str] = {
     "settings.smtp.test": "Sinov xati yubordi",
     "group.on": "Guruhni uladi",
     "group.off": "Guruhni uzdi",
+    "group.message.delete": "Guruhdagi bot xabarini o'chirdi",
 }
 
 

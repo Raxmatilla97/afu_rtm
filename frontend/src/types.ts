@@ -363,3 +363,43 @@ export interface SoftAsset {
   last_sent_at: string | null;
   created_at: string;
 }
+
+/** A Telegram group the bot broadcasts into, with how much of its output sits there. */
+export interface GroupChat {
+  chat_id: number;
+  title: string | null;
+  chat_type: string | null;
+  is_active: boolean;
+  message_count: number;
+}
+
+/**
+ * One message the bot currently has on screen in a group.
+ *
+ * `kind` is "card" for a request card and one of the `group_messages` kinds otherwise —
+ * two sources, one list; see the backend module for why they are not one table.
+ */
+export interface GroupMessage {
+  chat_id: number;
+  chat_title: string | null;
+  message_id: number;
+  kind: string;
+  kind_label: string;
+  request_id: number | null;
+  request_number: string | null;
+  request_status: string | null;
+  preview: string | null;
+  /** Deep link into Telegram. Null for a basic group, which has no linkable messages. */
+  telegram_url: string | null;
+  /** Only the replayed files have one — the bot deletes those itself when it passes. */
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface GroupMessageDeleteResult {
+  deleted: number;
+  /** Already gone before we asked — a moderator got there first. */
+  already_gone: number;
+  /** Refused by Telegram, each with its reason. */
+  failed: string[];
+}

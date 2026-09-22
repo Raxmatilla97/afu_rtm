@@ -3,6 +3,7 @@ from afu_shared.models.base import Base
 from afu_shared.models.category import Category
 from afu_shared.models.department import Department
 from afu_shared.models.employee import Employee
+from afu_shared.models.group_message import GroupMessage
 from afu_shared.models.hemis_sync_run import HemisSyncRun
 from afu_shared.models.inventory import (
     InventoryAttachment,
@@ -30,6 +31,7 @@ __all__ = [
     "Category",
     "Department",
     "Employee",
+    "GroupMessage",
     "HemisSyncRun",
     "InventoryAttachment",
     "InventoryCategory",

@@ -14,6 +14,7 @@ import { EmployeesPage } from "@/pages/EmployeesPage";
 import { InventoryPage } from "@/pages/InventoryPage";
 import { SoftPage } from "@/pages/SoftPage";
 import { DepartmentsPage } from "@/pages/DepartmentsPage";
+import { GroupMessagesPage } from "@/pages/GroupMessagesPage";
 import { HemisSyncPage } from "@/pages/HemisSyncPage";
 import { StatsPage } from "@/pages/StatsPage";
 import { LeaderboardPage } from "@/pages/LeaderboardPage";
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="/employees" element={<EmployeesPage />} />
               <Route path="/departments" element={<DepartmentsPage />} />
               <Route path="/hemis-sync" element={<HemisSyncPage />} />
+              <Route path="/group-messages" element={<GroupMessagesPage />} />
               <Route path="/admin-notes" element={<AdminNotesPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

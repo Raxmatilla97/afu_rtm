@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.assignments import assignees_of
 from afu_shared.db import session_scope
-from afu_shared.group_card import build_card_keyboard, build_card_text
+from afu_shared.group_card import OVERDUE_HEADLINE, build_card_keyboard, build_card_text
+from afu_shared.group_log import KIND_FILES, KIND_NOTE, KIND_OVERDUE, record_group_message
 from afu_shared.media import send_attachments
 from afu_shared.models import (
     Employee,
@@ -151,7 +152,7 @@ async def refresh_request_cards(
                 await _deactivate(session, post.chat_id)
                 continue
             if note:
-                await _reply_note(bot, post, note)
+                await _reply_note(session, bot, post, note)
 
 
 async def _edit_card(bot: Bot, post: RequestGroupPost, text: str, keyboard) -> bool:
@@ -178,9 +179,11 @@ async def _edit_card(bot: Bot, post: RequestGroupPost, text: str, keyboard) -> b
     return True
 
 
-async def _reply_note(bot: Bot, post: RequestGroupPost, note: str) -> None:
+async def _reply_note(
+    session: AsyncSession, bot: Bot, post: RequestGroupPost, note: str
+) -> None:
     try:
-        await bot.send_message(
+        sent = await bot.send_message(
             post.chat_id,
             note,
             parse_mode="HTML",
@@ -193,6 +196,19 @@ async def _reply_note(bot: Bot, post: RequestGroupPost, note: str) -> None:
         )
     except (TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter) as exc:
         logger.warning("Could not post note to %s: %s", post.chat_id, exc)
+        return
+
+    # Recorded so the admin panel can list — and take back — the lines that pile up under a
+    # busy card. The overdue alarm is told apart from the ordinary "X took this on" because
+    # it is the one an admin is most likely to be looking for.
+    await record_group_message(
+        session,
+        chat_id=post.chat_id,
+        message_id=sent.message_id,
+        kind=KIND_OVERDUE if OVERDUE_HEADLINE in note else KIND_NOTE,
+        text=note,
+        request_id=post.request_id,
+    )
 
 
 #: How long replayed files stay in a group before the bot clears them away.
@@ -235,6 +251,19 @@ async def send_request_files_to_chat(ctx: dict, request_id: int, chat_id: int) -
             "Kerak bo'lsa kartochkadagi tugmani qayta bosing.</i>"
         ),
     )
+    async with session_scope() as session:
+        for message_id in sent:
+            # Logged with the same countdown the caption promises, so the panel can offer
+            # to take them down early and can stop listing them once they are gone.
+            await record_group_message(
+                session,
+                chat_id=chat_id,
+                message_id=message_id,
+                kind=KIND_FILES,
+                text=f"{display_number} — {len(attachments)} ta material",
+                request_id=request_id,
+                ttl_seconds=GROUP_MEDIA_TTL_SECONDS,
+            )
     for message_id in sent:
         await ctx["redis"].enqueue_job(
             "delete_telegram_message",

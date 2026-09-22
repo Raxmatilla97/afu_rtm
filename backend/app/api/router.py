@@ -6,6 +6,7 @@ from app.api import (
     categories,
     departments,
     employees,
+    group_messages,
     hemis_sync,
     inventory,
     oauth_admin,
@@ -25,6 +26,7 @@ api_router.include_router(hemis_sync.router)
 api_router.include_router(departments.router)
 api_router.include_router(employees.router)
 api_router.include_router(requests.router)
+api_router.include_router(group_messages.router)
 api_router.include_router(categories.router)
 api_router.include_router(ratings.router)
 api_router.include_router(inventory.router)

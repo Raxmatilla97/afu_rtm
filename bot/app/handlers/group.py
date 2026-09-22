@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from afu_shared.assignments import OPEN_FOR_PICKUP, add_assignee, assignees_of
 from afu_shared.group_card import PICKER_PAGE_SIZE, build_picker_keyboard
+from afu_shared.group_log import KIND_NOTICE, KIND_WELCOME, record_group_message
 from afu_shared.models import Employee, NotificationChat, Request
 from afu_shared.people import short_name
 from afu_shared.telegram_text import esc
@@ -116,7 +117,11 @@ async def bot_added(
         return
 
     await _activate(session, event.chat.id, event.chat.title, event.chat.type, employee)
-    await bot.send_message(event.chat.id, WELCOME, parse_mode="HTML")
+    sent = await bot.send_message(event.chat.id, WELCOME, parse_mode="HTML")
+    await record_group_message(
+        session, chat_id=event.chat.id, message_id=sent.message_id,
+        kind=KIND_WELCOME, text=WELCOME,
+    )
 
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=LEAVE_TRANSITION))
@@ -157,7 +162,11 @@ async def enable_group(
         return
 
     await _activate(session, message.chat.id, message.chat.title, message.chat.type, employee)
-    await message.answer(WELCOME, parse_mode="HTML")
+    sent = await message.answer(WELCOME, parse_mode="HTML")
+    await record_group_message(
+        session, chat_id=message.chat.id, message_id=sent.message_id,
+        kind=KIND_WELCOME, text=WELCOME,
+    )
     await _hide_command(message)
 
 
@@ -173,10 +182,17 @@ async def disable_group(
     chat = await session.get(NotificationChat, message.chat.id)
     if chat is not None:
         chat.is_active = False
-    await message.answer(
+    notice = (
         "🔕 Bu guruhga endi murojaatlar yuborilmaydi.\n"
-        "<i>Qayta yoqish tartibi: rtm.afu.uz → «Admin uchun eslatmalar».</i>",
-        parse_mode="HTML",
+        "<i>Qayta yoqish tartibi: rtm.afu.uz → «Admin uchun eslatmalar».</i>"
+    )
+    sent = await message.answer(notice, parse_mode="HTML")
+    # Recorded even though the group was just switched off: the message is still sitting in
+    # the chat, and a group being disconnected is exactly when somebody wants the bot's
+    # leftovers cleared out of it.
+    await record_group_message(
+        session, chat_id=message.chat.id, message_id=sent.message_id,
+        kind=KIND_NOTICE, text=notice,
     )
     await _hide_command(message)
 
