@@ -80,6 +80,14 @@ class MovementResponse(BaseModel):
     id: int
     item_id: int
     item_name: str | None = None
+    #: The item's own fields, copied onto the movement so a list of movements reads without
+    #: a second request per row. The write-off register is exactly that list, and "3" with
+    #: no unit and no category next to it is not a record of anything.
+    item_unit: str | None = None
+    item_category_slug: str | None = None
+    item_category_label: str | None = None
+    item_status: str | None = None
+    item_status_label: str | None = None
     delta: int
     reason: str
     reason_label: str
@@ -98,6 +106,13 @@ class MovementResponse(BaseModel):
             id=m.id,
             item_id=m.item_id,
             item_name=m.item.name if m.item else None,
+            item_unit=m.item.unit if m.item else None,
+            item_category_slug=m.item.category_slug if m.item else None,
+            item_category_label=(
+                m.item.category.label_uz if m.item and m.item.category else None
+            ),
+            item_status=m.item.status if m.item else None,
+            item_status_label=inventory_status_label(m.item.status) if m.item else None,
             delta=m.delta,
             reason=m.reason,
             reason_label=movement_reason_label(m.reason),
@@ -150,6 +165,31 @@ class InventoryItemResponse(BaseModel):
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
+
+
+class WriteOffPage(BaseModel):
+    """One screen of the write-off register, with the totals for the *whole* filtered set.
+
+    The totals are computed over everything the filter matches rather than over the rows
+    being returned, because the question a write-off register answers is "how much did we
+    lose this quarter" — a figure that silently changes when somebody turns a page would be
+    worse than no figure at all.
+    """
+
+    rows: list[MovementResponse] = []
+    #: How many movements match the filter in total, so the pager knows where it ends.
+    total: int = 0
+    #: Units written off across the whole filtered set, always positive.
+    total_quantity: int = 0
+    #: Their value, where a price was recorded. Items without one are absent from the sum
+    #: rather than counted as free — the same rule the stock value follows.
+    total_value: Decimal | None = None
+    #: How many distinct items the filtered write-offs touch.
+    item_count: int = 0
+    #: This calendar month's slice, shown next to the total so a spike is visible without
+    #: anybody having to set a date filter first.
+    this_month_quantity: int = 0
+    this_month_value: Decimal | None = None
 
 
 class InventorySummary(BaseModel):

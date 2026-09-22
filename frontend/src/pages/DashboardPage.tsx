@@ -143,7 +143,7 @@ export function DashboardPage() {
         </Link>
         {session.kind === "employee" && (
           <Link to="/requests/new" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            Yangi murojaat
+            {session.employee.can_file_managed_request ? "👑 Yangi topshiriq" : "Yangi murojaat"}
           </Link>
         )}
       </div>

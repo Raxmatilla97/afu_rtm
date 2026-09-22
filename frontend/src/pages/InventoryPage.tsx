@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { describeError } from "@/api/errors";
 import { inventoryApi, type ItemDraft } from "@/api/inventory";
 import { ErrorBanner, PageHeader } from "@/components/PageHeader";
@@ -10,6 +11,7 @@ import type {
   InventoryMovement,
   InventorySummary,
   Money,
+  WriteOffPage,
 } from "@/types";
 
 const EMPTY_DRAFT: ItemDraft = {
@@ -37,10 +39,73 @@ const MOVEMENT_OPTIONS = [
   ["adjustment", "✏️ Tuzatish", 1],
 ] as const;
 
+/** Rows per page of the write-off ledger. Mirrors WRITE_OFF_PAGE_SIZE on the server. */
+const WRITE_OFF_PAGE_SIZE = 50;
+
+interface WriteOffFilters {
+  q: string;
+  categorySlug: string;
+  from: string;
+  to: string;
+  page: number;
+}
+
+const EMPTY_WRITE_OFF_FILTERS: WriteOffFilters = {
+  q: "",
+  categorySlug: "",
+  from: "",
+  to: "",
+  page: 0,
+};
+
+/**
+ * The date ranges people actually ask for, so the common case is one tap rather than two
+ * date pickers. "Bu oy" is first because a write-off register is read at month end.
+ */
+const WRITE_OFF_RANGES: ReadonlyArray<readonly [string, () => { from: string; to: string }]> = [
+  ["Bu oy", () => ({ from: localIso(startOfMonth()), to: "" })],
+  ["Oxirgi 30 kun", () => ({ from: localIso(daysAgo(30)), to: "" })],
+  ["Oxirgi 90 kun", () => ({ from: localIso(daysAgo(90)), to: "" })],
+  ["Bu yil", () => ({ from: `${new Date().getFullYear()}-01-01`, to: "" })],
+  ["Barchasi", () => ({ from: "", to: "" })],
+];
+
 function money(value: Money): string {
   if (!value) return "—";
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toLocaleString("uz-UZ")} so'm` : String(value);
+}
+
+function fullDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("uz-UZ", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * `yyyy-mm-dd` in the reader's own timezone — what `<input type="date">` shows and what the
+ * API filters on. `toISOString` would hand back the UTC date, which in UTC+5 is yesterday
+ * for the first five hours of every day: "Bu oy" pressed on the 1st of October would have
+ * quietly filtered from the 30th of September.
+ */
+function localIso(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function daysAgo(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function startOfMonth(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
 export function InventoryPage() {
@@ -48,12 +113,19 @@ export function InventoryPage() {
   const canWrite =
     isAdmin || (session.kind === "employee" && session.employee.can_manage_assignments);
 
+  // In the URL, not in state: the write-off register is the thing people are sent to look
+  // at ("see what we scrapped in March"), and a tab that cannot be linked to means that
+  // message has to carry directions instead of a link.
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "write-offs" ? "write-offs" : "stock";
+
   const [categories, setCategories] = useState<InventoryCategory[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [summary, setSummary] = useState<InventorySummary | null>(null);
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [onlyLow, setOnlyLow] = useState(false);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -61,6 +133,9 @@ export function InventoryPage() {
   const [draft, setDraft] = useState<ItemDraft>(EMPTY_DRAFT);
   const [openItem, setOpenItem] = useState<InventoryItem | null>(null);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
+
+  const [writeOffs, setWriteOffs] = useState<WriteOffPage | null>(null);
+  const [writeOffFilters, setWriteOffFilters] = useState<WriteOffFilters>(EMPTY_WRITE_OFF_FILTERS);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +145,7 @@ export function InventoryPage() {
           q: q || undefined,
           category_slug: categoryFilter || undefined,
           only_low: onlyLow || undefined,
+          include_archived: includeArchived || undefined,
         }),
         inventoryApi.summary(),
       ]);
@@ -80,19 +156,46 @@ export function InventoryPage() {
     } catch (e) {
       setError(describeError(e));
     }
-  }, [q, categoryFilter, onlyLow]);
+  }, [q, categoryFilter, onlyLow, includeArchived]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
   }, [load]);
 
+  // The tab count in the navigation reads from this, so it loads even while the stock tab
+  // is showing: "Hisobdan chiqarilganlar · 41 ta yozuv" is the whole reason somebody goes
+  // and looks, and a tab that only counts itself once opened never prompts anybody.
+  const loadWriteOffs = useCallback(async () => {
+    try {
+      setWriteOffs(
+        await inventoryApi.writeOffs({
+          q: writeOffFilters.q || undefined,
+          category_slug: writeOffFilters.categorySlug || undefined,
+          date_from: writeOffFilters.from || undefined,
+          date_to: writeOffFilters.to || undefined,
+          limit: WRITE_OFF_PAGE_SIZE,
+          offset: writeOffFilters.page * WRITE_OFF_PAGE_SIZE,
+        }),
+      );
+    } catch (e) {
+      setError(describeError(e));
+    }
+  }, [writeOffFilters]);
+
+  useEffect(() => {
+    const t = setTimeout(loadWriteOffs, 250);
+    return () => clearTimeout(t);
+  }, [loadWriteOffs]);
+
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
       await action();
-      await load();
+      // Both, always: a write-off booked from the stock tab belongs in the ledger and in
+      // the tab count immediately, not on the next reload.
+      await Promise.all([load(), loadWriteOffs()]);
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -183,7 +286,8 @@ export function InventoryPage() {
         title="RTM Inventar"
         subtitle="Ombor qoldig'i, sarflar va xaridlar. Har bir o'zgarish sababi bilan yoziladi."
         action={
-          canWrite && (
+          canWrite &&
+          tab === "stock" && (
             <button
               onClick={() => {
                 setCreating((v) => !v);
@@ -197,8 +301,35 @@ export function InventoryPage() {
         }
       />
 
+      <nav className="mb-6 flex flex-wrap gap-2 border-b border-slate-200">
+        <TabButton
+          active={tab === "stock"}
+          onClick={() => setParams({}, { replace: true })}
+          icon="📦"
+          label="Ombor qoldig'i"
+          note={summary ? `${summary.total_items} tur` : undefined}
+        />
+        <TabButton
+          active={tab === "write-offs"}
+          onClick={() => setParams({ tab: "write-offs" }, { replace: true })}
+          icon="🗑"
+          label="Hisobdan chiqarilganlar"
+          note={writeOffs ? `${writeOffs.total} ta yozuv` : undefined}
+        />
+      </nav>
+
       {error && <ErrorBanner message={error} />}
 
+      {tab === "write-offs" ? (
+        <WriteOffRegister
+          categories={categories}
+          page={writeOffs}
+          filters={writeOffFilters}
+          onFilters={setWriteOffFilters}
+          onError={setError}
+        />
+      ) : (
+        <>
       {summary && (
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <Tile label="Turlari" value={summary.total_items} />
@@ -354,6 +485,14 @@ export function InventoryPage() {
           />
           Faqat tugayotganlar
         </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+          />
+          Arxivdagilar bilan
+        </label>
       </div>
 
       <ResponsiveTable
@@ -363,6 +502,8 @@ export function InventoryPage() {
         empty="Hech narsa topilmadi"
         rowClass={(i) => (i.is_low ? "bg-red-50/60" : "")}
       />
+        </>
+      )}
       {openItem && (
         <HistoryPanel
           item={openItem}
@@ -568,6 +709,309 @@ function MovementModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+  note,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: string;
+  label: string;
+  note?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      // The underline sits on the button rather than on a separate indicator so the tab
+      // stays legible at 400px, where the two of them wrap onto separate lines.
+      className={`-mb-px flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors ${
+        active
+          ? "border-brand-600 text-brand-700"
+          : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
+      }`}
+    >
+      <span aria-hidden>{icon}</span>
+      {label}
+      {note && (
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] ${
+            active ? "bg-brand-50 text-brand-700" : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {note}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The write-off ledger: everything struck off the register, and what it was worth.
+ *
+ * Deliberately not another view of the stock table. A written-off item is often no longer
+ * in stock at all — sometimes the item row itself has been archived — so a list keyed on
+ * current quantity would either hide it or show a misleading zero. The row here is the
+ * *event*: when, what, how many, why, who, and against which request.
+ */
+function WriteOffRegister({
+  categories,
+  page,
+  filters,
+  onFilters,
+  onError,
+}: {
+  categories: InventoryCategory[];
+  page: WriteOffPage | null;
+  filters: WriteOffFilters;
+  onFilters: (next: WriteOffFilters) => void;
+  onError: (message: string | null) => void;
+}) {
+  const rows = page?.rows ?? [];
+  const total = page?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / WRITE_OFF_PAGE_SIZE));
+  const current = Math.min(filters.page, pageCount - 1);
+  const filtered = Boolean(filters.q || filters.categorySlug || filters.from || filters.to);
+
+  // Any filter change resets to the first page. Staying on page 4 of a set that just shrank
+  // to two pages shows an empty table and reads as "nothing found".
+  function setFilter(patch: Partial<WriteOffFilters>) {
+    onError(null);
+    onFilters({ ...filters, ...patch, page: 0 });
+  }
+
+  const columns: Column<InventoryMovement>[] = [
+    {
+      key: "item",
+      header: "Inventar",
+      mobile: "title",
+      cell: (m) => (
+        <span className="font-medium text-slate-800">{m.item_name ?? `#${m.item_id}`}</span>
+      ),
+    },
+    {
+      key: "category",
+      header: "Kategoriya",
+      mobile: "meta",
+      cell: (m) => (
+        <>
+          {m.item_category_label ?? "—"}
+          {m.item_status === "archived" && (
+            <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
+              📦 arxivda
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "quantity",
+      header: "Miqdori",
+      align: "right",
+      cell: (m) => (
+        <>
+          <span className="font-semibold tabular-nums text-red-700">{-m.delta}</span>
+          <span className="text-xs text-slate-400"> {m.item_unit ?? "dona"}</span>
+        </>
+      ),
+    },
+    {
+      key: "value",
+      header: "Qiymati",
+      align: "right",
+      cell: (m) => <span className="tabular-nums">{money(m.total_price)}</span>,
+    },
+    {
+      key: "reason",
+      header: "Sababi",
+      cell: (m) => (
+        <span className="text-slate-600">
+          {m.note || <span className="text-slate-400">Izoh yozilmagan</span>}
+          {m.request_number && (
+            <a
+              href={`/requests/${m.request_id}`}
+              className="ml-2 whitespace-nowrap text-brand-600 hover:underline"
+            >
+              {m.request_number}
+            </a>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "who",
+      header: "Kim",
+      cell: (m) => <span className="text-slate-600">{m.employee_name ?? "Admin"}</span>,
+    },
+    {
+      key: "when",
+      header: "Sana",
+      cell: (m) => (
+        <span className="whitespace-nowrap text-slate-500">{fullDateTime(m.created_at)}</span>
+      ),
+    },
+    {
+      key: "docs",
+      header: "Hujjat",
+      cell: (m) =>
+        m.attachments.length === 0 ? (
+          <span className="text-slate-300">—</span>
+        ) : (
+          <span className="flex flex-wrap gap-2">
+            {m.attachments.map((a) => (
+              <a
+                key={a.id}
+                href={a.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-brand-600 hover:underline"
+              >
+                🧾 {a.original_filename || "hujjat"}
+              </a>
+            ))}
+          </span>
+        ),
+    },
+  ];
+
+  return (
+    <div>
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Tile
+          label={filtered ? "Tanlangan davrda" : "Jami hisobdan chiqarilgan"}
+          value={page?.total_quantity ?? 0}
+          tone="#d03b3b"
+          icon="🗑"
+          note={`${total} ta yozuv`}
+        />
+        <Tile label="Qiymati" value={money(page?.total_value ?? null)} small tone="#d03b3b" />
+        <Tile label="Inventar turlari" value={page?.item_count ?? 0} />
+        <Tile
+          label="Shu oy"
+          value={page?.this_month_quantity ?? 0}
+          note={
+            page?.this_month_value ? `qiymati: ${money(page.this_month_value)}` : undefined
+          }
+        />
+      </div>
+
+      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {WRITE_OFF_RANGES.map(([label, make]) => {
+            const range = make();
+            const active = filters.from === range.from && filters.to === range.to;
+            return (
+              <button
+                key={label}
+                onClick={() => setFilter(range)}
+                className={`min-h-9 rounded-full border px-3 text-xs font-medium transition-colors ${
+                  active
+                    ? "border-brand-600 bg-brand-600 text-white"
+                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={filters.q}
+            onChange={(e) => setFilter({ q: e.target.value })}
+            placeholder="Inventar nomi yoki izoh bo'yicha..."
+            className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-72"
+          />
+          <select
+            value={filters.categorySlug}
+            onChange={(e) => setFilter({ categorySlug: e.target.value })}
+            className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm sm:w-auto"
+          >
+            <option value="">Barcha kategoriyalar</option>
+            {categories.map((c) => (
+              <option key={c.slug} value={c.slug}>
+                {c.label_uz}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            dan
+            <input
+              type="date"
+              value={filters.from}
+              onChange={(e) => setFilter({ from: e.target.value })}
+              className="min-h-11 rounded-lg border border-slate-300 px-2 text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            gacha
+            <input
+              type="date"
+              value={filters.to}
+              onChange={(e) => setFilter({ to: e.target.value })}
+              className="min-h-11 rounded-lg border border-slate-300 px-2 text-sm"
+            />
+          </label>
+          {filtered && (
+            <button
+              onClick={() => setFilter(EMPTY_WRITE_OFF_FILTERS)}
+              className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              ✖️ Filtrni tozalash
+            </button>
+          )}
+        </div>
+      </div>
+
+      <ResponsiveTable
+        rows={rows}
+        columns={columns}
+        rowKey={(m) => m.id}
+        empty={
+          filtered
+            ? "Bu shartlarga mos hisobdan chiqarilgan inventar topilmadi"
+            : "Hali hech narsa hisobdan chiqarilmagan"
+        }
+      />
+
+      {pageCount > 1 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs text-slate-500">
+            {current * WRITE_OFF_PAGE_SIZE + 1}–
+            {Math.min((current + 1) * WRITE_OFF_PAGE_SIZE, total)} / {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              disabled={current === 0}
+              onClick={() => onFilters({ ...filters, page: current - 1 })}
+              className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              ⬅️ Oldingi
+            </button>
+            <button
+              disabled={current >= pageCount - 1}
+              onClick={() => onFilters({ ...filters, page: current + 1 })}
+              className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              Keyingi ➡️
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-slate-400">
+        Hisobdan chiqarish — «Ombor qoldig'i» bo'limidagi «± Harakat» tugmasi orqali
+        «🗑 Hisobdan chiqarish» sababi bilan yoziladi. Har bir yozuv qaytarib bo'lmaydi;
+        xato bo'lsa «✏️ Tuzatish» harakati bilan to'g'rilanadi.
+      </p>
     </div>
   );
 }

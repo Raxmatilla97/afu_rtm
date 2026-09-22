@@ -9,7 +9,7 @@ Stock is never assigned directly here. Every change goes through
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -39,6 +39,7 @@ from app.schemas.inventory import (
     InventorySummary,
     MovementCreate,
     MovementResponse,
+    WriteOffPage,
 )
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -358,6 +359,103 @@ async def recent_movements(
         stmt = stmt.where(InventoryMovement.request_id == request_id)
     stmt = stmt.order_by(InventoryMovement.id.desc()).limit(200)
     return [MovementResponse.from_movement(m) for m in (await session.execute(stmt)).scalars()]
+
+
+#: One screen of the write-off register. Large enough that a quarter usually fits in two
+#: or three pages, small enough that the totals stay above the fold on a phone.
+WRITE_OFF_PAGE_SIZE = 50
+
+
+@router.get("/write-offs", response_model=WriteOffPage)
+async def write_offs(
+    q: str | None = None,
+    category_slug: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = WRITE_OFF_PAGE_SIZE,
+    offset: int = 0,
+    caller: User | Employee = Depends(get_current_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WriteOffPage:
+    """Everything that has been struck off the register, and what it was worth.
+
+    A separate endpoint from ``/movements`` rather than a ``reason=write_off`` filter on it,
+    because the two answer different questions. ``/movements`` is a feed — the last 200
+    things that happened. This is a ledger: it is filtered by date and category, paged, and
+    reported with totals over the whole filtered set, which is what anybody asking "what did
+    we scrap this year and what did it cost" actually needs.
+    """
+    _can_read(caller)
+
+    conditions = [InventoryMovement.reason == MovementReason.WRITE_OFF.value]
+    if category_slug:
+        conditions.append(InventoryItem.category_slug == category_slug)
+    if q:
+        like = f"%{q}%"
+        conditions.append(or_(InventoryItem.name.ilike(like), InventoryMovement.note.ilike(like)))
+    if date_from:
+        conditions.append(
+            InventoryMovement.created_at
+            >= datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        )
+    if date_to:
+        # Inclusive: somebody asking for "up to the 30th" means the whole of the 30th, and
+        # an exclusive bound silently drops a day's losses out of the total.
+        conditions.append(
+            InventoryMovement.created_at
+            < datetime.combine(date_to, time.min, tzinfo=timezone.utc) + timedelta(days=1)
+        )
+
+    # Joined rather than left-joined: a movement always has an item, and the join is what
+    # lets the name and category filters work at all.
+    base = select(InventoryMovement).join(
+        InventoryItem, InventoryItem.id == InventoryMovement.item_id
+    )
+
+    month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    total, quantity, value, items, month_quantity, month_value = (
+        await session.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(-InventoryMovement.delta), 0),
+                func.sum(-InventoryMovement.delta * InventoryMovement.unit_price),
+                func.count(func.distinct(InventoryMovement.item_id)),
+                func.coalesce(
+                    func.sum(-InventoryMovement.delta).filter(
+                        InventoryMovement.created_at >= month_start
+                    ),
+                    0,
+                ),
+                func.sum(-InventoryMovement.delta * InventoryMovement.unit_price).filter(
+                    InventoryMovement.created_at >= month_start
+                ),
+            )
+            .select_from(InventoryMovement)
+            .join(InventoryItem, InventoryItem.id == InventoryMovement.item_id)
+            .where(*conditions)
+        )
+    ).one()
+
+    rows = (
+        await session.execute(
+            base.where(*conditions)
+            .order_by(InventoryMovement.created_at.desc(), InventoryMovement.id.desc())
+            .limit(max(1, min(limit, 200)))
+            .offset(max(0, offset))
+        )
+    ).scalars()
+
+    return WriteOffPage(
+        rows=[MovementResponse.from_movement(m) for m in rows],
+        total=total or 0,
+        total_quantity=int(quantity or 0),
+        total_value=value,
+        item_count=items or 0,
+        this_month_quantity=int(month_quantity or 0),
+        this_month_value=month_value,
+    )
 
 
 @router.post("/items/{item_id}/attachments", response_model=InventoryAttachmentResponse)

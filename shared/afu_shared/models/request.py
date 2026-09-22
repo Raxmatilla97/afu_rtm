@@ -40,6 +40,14 @@ class Request(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default=RequestStatus.NEW.value, index=True)
     source: Mapped[str] = mapped_column(String, nullable=False)
 
+    #: ``"boshliq"``, ``"admin"`` or null — which management role filed this, stamped once
+    #: at creation by ``afu_shared.people.role_of``. Stored rather than re-derived from the
+    #: requester's flags because the group card is edited in place for the request's whole
+    #: life: a Boshliq who is later demoted would otherwise retroactively turn every
+    #: directive they ever issued back into an ordinary request, including ones already
+    #: being worked on because of who asked.
+    requester_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     assigned_to_employee_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("employees.id"), nullable=True, index=True
     )

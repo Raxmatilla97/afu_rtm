@@ -120,6 +120,19 @@ class Employee(TimestampMixin, Base):
         )
 
     @property
+    def can_file_managed_request(self) -> bool:
+        """May file a *directive* — a request that arrives with a deadline and a team on it.
+
+        Boshliq only, which is deliberately narrower than ``can_manage_assignments``. An
+        Admin runs the panel: they add employees, connect groups, fix records. Committing
+        RTM to finishing a job by Thursday is a decision about the service itself, and the
+        person who makes it is its head. So an employee flagged only Admin files an ordinary
+        request like anybody else, while somebody who is both keeps what the Boshliq flag
+        gives them.
+        """
+        return self.is_eligible and self.is_supervisor
+
+    @property
     def can_manage_assignments(self) -> bool:
         """May decide who works on a request, and take somebody off one.
 

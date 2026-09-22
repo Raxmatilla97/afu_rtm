@@ -34,6 +34,10 @@ ACTION_LABELS: dict[str, str] = {
     "bot.menu": "Bot menyusi",
     "bot.button": "Botda tugma bosdi",
     "request.create": "Yangi murojaat yubordi",
+    #: Filed by a Boshliq with a deadline and a team already on it. Kept apart from
+    #: ``request.create`` because "who is issuing directives, and how many" is a question
+    #: about the service that an ordinary request count cannot answer.
+    "request.directive": "Topshiriq berdi (muddat va bajaruvchi bilan)",
     "request.assign": "Murojaatni tayinladi",
     "request.take": "Murojaatni o'z zimmasiga oldi",
     "request.start": "Ishni boshladi",

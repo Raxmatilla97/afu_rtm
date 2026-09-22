@@ -21,6 +21,7 @@ from afu_shared.group_card import format_duration
 from afu_shared.labels import status_label
 from afu_shared.media import describe_attachments, send_attachments
 from afu_shared.message_links import remember_many
+from afu_shared.people import short_name
 from afu_shared.telegram_text import esc
 from afu_shared.models import (
     Employee,
@@ -175,7 +176,7 @@ async def notify_request_assigned(
             return
 
         colleagues = [
-            row.employee.full_name
+            short_name(row.employee.full_name)
             for row in await assignees_of(session, request_id)
             if row.employee_id != target_id and row.employee
         ]
@@ -190,7 +191,7 @@ async def notify_request_assigned(
             f"Kategoriya: {request.category.label_uz if request.category else '—'}",
         ]
         if requester:
-            lines.append(f"\n👤 <b>Murojaatchi:</b> {esc(requester.full_name)}")
+            lines.append(f"\n👤 <b>Murojaatchi:</b> {esc(short_name(requester.full_name))}")
             if requester.department:
                 lines.append(f"Bo'lim: {esc(requester.department.name)}")
             if requester.phone_number:
@@ -259,10 +260,10 @@ async def send_completion_notification(
         )
 
         team = [
-            row.employee.full_name
+            short_name(row.employee.full_name)
             for row in await assignees_of(session, request_id)
             if row.employee
-        ] or [staff.full_name if staff else "RTM xodimi"]
+        ] or [short_name(staff.full_name) if staff else "RTM xodimi"]
 
         # Deliberately celebratory. This is the one message in the whole flow that tells
         # somebody their problem is gone, and it should read like good news rather than
@@ -323,7 +324,7 @@ async def notify_request_message(
         author = (
             await session.get(Employee, author_employee_id) if author_employee_id else None
         )
-        author_name = esc(author.full_name) if author else "RTM administratori"
+        author_name = esc(short_name(author.full_name)) if author else "RTM administratori"
         display_number = request.display_number
         internal = message.visibility == MessageVisibility.INTERNAL.value
 
@@ -436,7 +437,7 @@ async def notify_request_waiting(ctx: dict, request_id: int, employee_id: int | 
             f"<b>Sabab:</b> {esc(request.waiting_reason, default='Kerakli qism omborda yo‘q')}\n"
             f"⏳ <b>Taxminiy muddat:</b> {until}\n\n"
             "Murojaatingiz bekor qilinmadi va unutilmadi — kerakli qism kelishi bilan "
-            f"{esc(staff.full_name) if staff else 'RTM xodimi'} ishni davom ettiradi va sizga "
+            f"{esc(short_name(staff.full_name)) if staff else 'RTM xodimi'} ishni davom ettiradi va sizga "
             "xabar beramiz."
             + REPLY_HINT
         )

@@ -59,7 +59,14 @@ export function Layout() {
     { to: "/", label: "Bosh sahifa", icon: "🏠" },
     { to: "/requests", label: "Murojaatlar", icon: "📋" },
     ...(session.kind === "employee"
-      ? [{ to: "/requests/new", label: "Yangi murojaat", icon: "➕" }]
+      ? [
+          // Named for what the page actually produces. A Boshliq's form sends a directive
+          // — deadline, team, its own card in the group — and calling both "Yangi murojaat"
+          // in the sidebar hides the one difference that matters.
+          session.employee.can_file_managed_request
+            ? { to: "/requests/new", label: "Yangi topshiriq", icon: "👑" }
+            : { to: "/requests/new", label: "Yangi murojaat", icon: "➕" },
+        ]
       : []),
     { to: "/leaderboard", label: "Top xodimlar", icon: "🏆" },
     { to: "/stats", label: "Statistika", icon: "📊" },

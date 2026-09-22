@@ -24,6 +24,7 @@ from afu_shared.models import (
     RequestStatusHistory,
     User,
 )
+from afu_shared.people import role_of
 from afu_shared.richtext import html_to_text, sanitize_html
 from afu_shared.settings import settings
 from app.arq_pool import get_arq_pool
@@ -122,12 +123,20 @@ async def create_request(
 
     # De-duplicated with the order kept: the first name picked is the one who leads the job.
     employee_ids = list(dict.fromkeys(payload.assigned_to_employee_ids))
-    if employee_ids and not caller.can_manage_assignments:
+    # Boshliq, not "Boshliq or Admin". Naming the team and the deadline while filing turns
+    # a request into a directive, and issuing one is the head of RTM's call — an employee
+    # flagged only Admin runs the panel and files ordinary requests like everybody else.
+    # See Employee.can_file_managed_request.
+    if (employee_ids or payload.deadline_at) and not caller.can_file_managed_request:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Faqat Boshliq yoki Admin tayinlay oladi",
+            detail=(
+                "Bajaruvchi va muddat belgilab murojaat yuborishni faqat Boshliq roliga "
+                "ega xodim qila oladi. Sizda faqat Admin roli bor."
+            ),
         )
     staff = await _resolve_staff(session, employee_ids)
+    requester_role = role_of(caller)
 
     request = Request(
         requester_employee_id=caller.id,
@@ -136,10 +145,13 @@ async def create_request(
         description_html=description_html or None,
         status=RequestStatus.NEW.value,
         source=RequestSource.WEB.value,
-        # A deadline is a promise made on RTM's behalf, so only somebody who may hand work
-        # out can make one. Set here rather than after the flush so that the very first
-        # group card already carries it.
-        deadline_at=payload.deadline_at if caller.can_manage_assignments else None,
+        # Stamped once, here. The group card reads this for the rest of the request's life
+        # rather than re-deriving it from the requester's current flags — see the column.
+        requester_role=requester_role,
+        # A deadline is a promise made on RTM's behalf, so only somebody who may issue a
+        # directive can make one. Set here rather than after the flush so that the very
+        # first group card already carries it.
+        deadline_at=payload.deadline_at if requester_role else None,
     )
     session.add(request)
     await session.flush()
@@ -164,7 +176,18 @@ async def create_request(
     await session.commit()
 
     await record_for(
-        session, caller, action="request.create", target=request.display_number
+        session,
+        caller,
+        # A directive is a different act from filing a fault report, and the activity feed
+        # is where "who is issuing them" gets answered. A Boshliq who names neither a
+        # deadline nor a team has simply reported a fault like anybody else — their card
+        # still carries the role badge, but the feed should not claim they gave an order.
+        action=(
+            "request.directive"
+            if requester_role and (employee_ids or request.deadline_at)
+            else "request.create"
+        ),
+        target=request.display_number,
     )
     if staff:
         await record_for(

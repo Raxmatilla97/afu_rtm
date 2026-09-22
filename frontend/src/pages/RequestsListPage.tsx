@@ -174,6 +174,16 @@ export function RequestsListPage() {
           <Link to={`/requests/${r.id}`} className="font-medium text-brand-700 hover:underline">
             {r.display_number}
           </Link>
+          {/* A directive is picked out of a queue of fault reports the same way it is in
+              the group: by a mark on the first thing the eye lands on. */}
+          {r.requester_role && (
+            <span
+              title={`${r.requester_role_label} topshirig'i`}
+              className="shrink-0 rounded-full bg-brand-600 px-2 py-0.5 text-[10px] font-semibold text-white"
+            >
+              {r.requester_role === "admin" ? "🛡" : "👑"} {r.requester_role_label}
+            </span>
+          )}
         </div>
       ),
     },

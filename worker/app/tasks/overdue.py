@@ -27,6 +27,7 @@ from afu_shared.enums import RequestStatus
 from afu_shared.group_card import format_duration
 from afu_shared.message_links import remember
 from afu_shared.models import Employee, Request
+from afu_shared.people import short_name
 from app.bot_client import get_bot
 from app.redis_client import get_redis
 
@@ -80,11 +81,11 @@ async def check_overdue_requests(ctx: dict) -> None:
                     "deadline": request.deadline_at.strftime("%d.%m.%Y %H:%M"),
                     "requester_chat": requester.telegram_user_id if requester else None,
                     "assignees": [
-                        (row.employee.telegram_user_id, row.employee.full_name)
+                        (row.employee.telegram_user_id, short_name(row.employee.full_name))
                         for row in team
                         if row.employee and row.employee.telegram_user_id
                     ],
-                    "names": [row.employee.full_name for row in team if row.employee],
+                    "names": [short_name(row.employee.full_name) for row in team if row.employee],
                 }
             )
             # Marked before anything is sent. If delivery fails halfway the request stays

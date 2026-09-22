@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
 
+from afu_shared.people import role_label, role_of
+
 
 class AdminLoginRequest(BaseModel):
     email: EmailStr
@@ -26,6 +28,11 @@ class EmployeeMeResponse(BaseModel):
     is_supervisor: bool = False
     is_admin: bool = False
     can_manage_assignments: bool = False
+    #: Boshliq only. Gates the directive form — a request filed with a deadline and a team
+    #: already on it. Narrower than the flag above on purpose; see Employee.
+    can_file_managed_request: bool = False
+    #: What the RTM group card will call them: "ADMIN", "BOSHLIQ" or null.
+    management_role: str | None = None
     phone_number: str | None
     telegram_username: str | None
 
@@ -40,6 +47,8 @@ class EmployeeMeResponse(BaseModel):
             is_supervisor=employee.is_supervisor,
             is_admin=employee.is_admin,
             can_manage_assignments=employee.can_manage_assignments,
+            can_file_managed_request=employee.can_file_managed_request,
+            management_role=role_label(role_of(employee)),
             phone_number=employee.phone_number,
             telegram_username=employee.telegram_username,
         )

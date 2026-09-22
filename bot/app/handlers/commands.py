@@ -194,7 +194,7 @@ async def navigate(
         screen = await stats.build_stats(session, employee)
     elif target == "newreq":
         await state.set_state(NewRequestStates.awaiting_category)
-        screen = await new_request.build_category_screen(session)
+        screen = await new_request.build_category_screen(session, employee)
     else:
         screen = menu.build_menu(employee)
 

@@ -246,7 +246,17 @@ export function RequestDetailPage() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{request.display_number}</h1>
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold text-slate-900 sm:text-2xl">
+            {request.display_number}
+            {/* The same badge the RTM group card carries, so one request does not read as
+                two different things depending on where you happened to open it. */}
+            {request.requester_role_label && (
+              <span className="rounded-full bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white">
+                {request.requester_role === "admin" ? "🛡" : "👑"}{" "}
+                {request.requester_role_label} topshirig'i
+              </span>
+            )}
+          </h1>
           <div className="text-sm text-slate-500">
             {request.category_label} · {request.source === "bot" ? "Telegram" : "Veb"}
           </div>

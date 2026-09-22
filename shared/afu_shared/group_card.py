@@ -18,10 +18,14 @@ from afu_shared.callbacks import GrpCB
 from afu_shared.enums import RequestStatus
 from afu_shared.media import describe_attachments
 from afu_shared.models import Employee, Rating, Request, RequestAssignee, RequestAttachment
+from afu_shared.people import ROLE_ADMIN, ROLE_BOSHLIQ, role_label, short_name
 from afu_shared.settings import settings
 from afu_shared.telegram_text import esc
 
 RULE = "━━━━━━━━━━━━━━"
+#: The rule a directive uses instead. A different glyph is the only way a chat can say
+#: "this one is not like the others" above the fold, where colour and layout do not exist.
+MANAGEMENT_RULE = "▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
 
 #: Headline per status. The card's whole state has to be readable from the first line,
 #: because that is all anyone scrolling a busy group actually reads.
@@ -38,6 +42,15 @@ _HEADLINES = {
 #: Overrides the status headline once the deadline has passed. Telegram has no colours, so
 #: urgency has to be carried by the one visual channel a chat does have.
 OVERDUE_HEADLINE = "🔴🚨 <b>MUDDAT O'TDI</b>"
+
+#: The opening line of a directive, replacing the ordinary "YANGI MUROJAAT" while the job
+#: is still open. Whoever is scrolling has to learn in the first line that this one came
+#: from the head of RTM and already has a deadline attached — by the time they reach the
+#: assignee list the card has lost the argument.
+_MANAGEMENT_HEADLINES = {
+    ROLE_ADMIN: "🛡 <b>ADMIN TOPSHIRIG'I</b>",
+    ROLE_BOSHLIQ: "👑 <b>BOSHLIQ TOPSHIRIG'I</b>",
+}
 
 _MEDALS = ("🥇", "🥈", "🥉")
 
@@ -94,16 +107,32 @@ def build_card_text(
     ratings: list[Rating] | None = None,
 ) -> str:
     overdue = is_overdue(request)
+    role = request.requester_role
+    badge = role_label(role)
+    # The directive headline only holds while the job is open. Once it is finished or
+    # cancelled the reader needs the outcome, not who asked — and "BOSHLIQ TOPSHIRIG'I"
+    # sitting on top of a completed job reads as still outstanding.
+    management_headline = (
+        _MANAGEMENT_HEADLINES.get(role)
+        if role and request.status in (RequestStatus.NEW.value, RequestStatus.ASSIGNED.value)
+        else None
+    )
+
     lines = [
-        OVERDUE_HEADLINE if overdue else _HEADLINES.get(request.status, "📋 <b>MUROJAAT</b>"),
-        RULE,
+        OVERDUE_HEADLINE
+        if overdue
+        else management_headline
+        or _HEADLINES.get(request.status, "📋 <b>MUROJAAT</b>"),
+        MANAGEMENT_RULE if role else RULE,
         f"🎫 <b>{request.display_number}</b> · "
         f"{esc(request.category.label_uz if request.category else None, default='—')}",
         "",
     ]
 
     if requester:
-        lines.append(f"👤 <b>{esc(requester.full_name)}</b>")
+        # Familiya + ism, never the patronymic: see afu_shared.people.
+        who = f"👤 <b>{esc(short_name(requester.full_name))}</b>"
+        lines.append(f"{who} · <b>[{badge}]</b>" if badge else who)
         if requester.department:
             lines.append(f"🏢 {esc(requester.department.name)}")
         if requester.phone_number:
@@ -117,12 +146,14 @@ def build_card_text(
 
     lines.append("")
     if assignees:
-        lines.append("🛠 <b>Bajaruvchilar:</b>")
+        lines.append(
+            "🛠 <b>Tayinlangan xodimlar:</b>" if role else "🛠 <b>Bajaruvchilar:</b>"
+        )
         for index, row in enumerate(assignees):
-            badge = _MEDALS[index] if index < len(_MEDALS) else "•"
-            name = esc(row.employee.full_name) if row.employee else f"#{row.employee_id}"
+            medal = _MEDALS[index] if index < len(_MEDALS) else "•"
+            name = esc(short_name(row.employee.full_name)) if row.employee else f"#{row.employee_id}"
             lead = " <i>(mas'ul)</i>" if row.is_primary else ""
-            lines.append(f"{badge} {name}{lead}")
+            lines.append(f"{medal} {name}{lead}")
     elif request.status == RequestStatus.CANCELLED.value:
         lines.append("❌ Bu murojaat bekor qilingan.")
     elif request.status == RequestStatus.RETURNED.value:
@@ -140,6 +171,20 @@ def build_card_text(
             lines.append(f"🚨 <b>{late} kechikdi!</b>")
     elif request.deadline_at and request.status != RequestStatus.COMPLETED.value:
         lines.append(f"\n⏰ Muddat: {_fmt_dt(request.deadline_at)}")
+
+    if management_headline:
+        # Closes the card the way it opened. Without it a directive that happens to carry no
+        # deadline and no assignee is indistinguishable from an ordinary report by the time
+        # the reader reaches the bottom — which is where the buttons are.
+        lines.append(MANAGEMENT_RULE)
+        lines.append(
+            f"📌 <b>{badge} topshirig'i</b> — "
+            + (
+                "belgilangan muddatda bajarilishi shart."
+                if request.deadline_at
+                else "muddat belgilanmagan, ammo birinchi navbatda bajariladi."
+            )
+        )
 
     if request.status == RequestStatus.RETURNED.value:
         # On the card whether or not anybody had taken the job: the group is where the next
@@ -244,7 +289,10 @@ def build_picker_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=("✅ " if person.id in assigned_ids else "") + person.full_name,
+                    # Two of these sit side by side on a phone, so the patronymic is not
+                    # merely redundant here — it is what truncates the surname.
+                    text=("✅ " if person.id in assigned_ids else "")
+                    + short_name(person.full_name),
                     callback_data=GrpCB(act="pick", rid=request_id, eid=person.id).pack(),
                 )
                 for person in staff[index : index + 2]

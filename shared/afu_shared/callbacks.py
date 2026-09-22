@@ -39,9 +39,20 @@ class CatCB(CallbackData, prefix="c"):
 
 
 class FlowCB(CallbackData, prefix="f"):
-    """Steps inside the new-request flow."""
+    """Steps inside the new-request flow.
+
+    The last three fields belong to the Boshliq's directive flow, which is the only branch
+    that has anything to choose: a deadline, then a team. They are unused — and so cost two
+    characters each — on the ordinary path every other employee takes.
+    """
 
     act: str  # attach_yes | attach_no | media_done | cancel
+    #: ``dl`` only — the deadline, in minutes from now.
+    n: int = 0
+    #: ``pick`` only — which employee was tapped.
+    eid: int = 0
+    #: ``pick``/``page`` — page of the staff picker.
+    page: int = 1
 
 
 class StatCB(CallbackData, prefix="s"):

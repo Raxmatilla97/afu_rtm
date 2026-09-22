@@ -5,6 +5,7 @@ import type {
   InventoryItem,
   InventoryMovement,
   InventorySummary,
+  WriteOffPage,
 } from "@/types";
 
 export interface ItemDraft {
@@ -23,13 +24,43 @@ export interface ItemDraft {
 export const inventoryApi = {
   categories: () => api.get<InventoryCategory[]>("/api/inventory/categories"),
   summary: () => api.get<InventorySummary>("/api/inventory/summary"),
-  items: (opts?: { q?: string; category_slug?: string; only_low?: boolean }) => {
+  items: (opts?: {
+    q?: string;
+    category_slug?: string;
+    only_low?: boolean;
+    include_archived?: boolean;
+  }) => {
     const params = new URLSearchParams();
     if (opts?.q) params.set("q", opts.q);
     if (opts?.category_slug) params.set("category_slug", opts.category_slug);
     if (opts?.only_low) params.set("only_low", "true");
+    if (opts?.include_archived) params.set("include_archived", "true");
     const qs = params.toString();
     return api.get<InventoryItem[]>(`/api/inventory/items${qs ? `?${qs}` : ""}`);
+  },
+  /**
+   * The write-off ledger — everything struck off the register, with totals.
+   *
+   * Separate from `recentMovements({ reason: "write_off" })`: that one is a capped feed of
+   * the last 200 movements, this one is filtered, paged and totalled over the whole set.
+   */
+  writeOffs: (opts?: {
+    q?: string;
+    category_slug?: string;
+    date_from?: string;
+    date_to?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (opts?.q) params.set("q", opts.q);
+    if (opts?.category_slug) params.set("category_slug", opts.category_slug);
+    if (opts?.date_from) params.set("date_from", opts.date_from);
+    if (opts?.date_to) params.set("date_to", opts.date_to);
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.offset) params.set("offset", String(opts.offset));
+    const qs = params.toString();
+    return api.get<WriteOffPage>(`/api/inventory/write-offs${qs ? `?${qs}` : ""}`);
   },
   createItem: (draft: ItemDraft) => api.post<InventoryItem>("/api/inventory/items", draft),
   updateItem: (id: number, patch: Partial<ItemDraft>) =>

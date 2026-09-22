@@ -33,6 +33,35 @@ const CATEGORY_ICONS: Record<string, string> = {
 /** How large one attachment may be. Mirrors MAX_UPLOAD_BYTES on the server. */
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
+/**
+ * The deadlines a Boshliq actually sets, as whole units of time from now.
+ *
+ * The same six the bot offers, in the same order and with the same wording — a directive
+ * issued from a phone and one issued from a desk have to be the same object, and "2 soat"
+ * meaning something different in the two places is the kind of difference nobody reports
+ * and everybody works around.
+ */
+const DEADLINE_PRESETS: ReadonlyArray<readonly [string, number]> = [
+  ["1 soat", 60],
+  ["2 soat", 120],
+  ["6 soat", 360],
+  ["1 kun", 24 * 60],
+  ["2 kun", 48 * 60],
+  ["1 hafta", 7 * 24 * 60],
+];
+
+/** `minutes` from now, formatted for `<input type="datetime-local">` in local time. */
+function deadlineFromNow(minutes: number): string {
+  const at = new Date(Date.now() + minutes * 60_000);
+  // toISOString would hand back UTC, which the control then reads as local — an hour or
+  // five off depending on where the reader is sitting.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    `T${pad(at.getHours())}:${pad(at.getMinutes())}`
+  );
+}
+
 interface Picked {
   file: File;
   /** Object URL for an image, so the writer can see what they attached. Revoked on removal. */
@@ -47,11 +76,27 @@ function humanSize(bytes: number): string {
 
 export function NewRequestPage() {
   const navigate = useNavigate();
-  const { session, isAdmin } = useAuth();
-  // Boshliq and Admin can name who will do the work while they are filing it. For everyone
-  // else the request goes into the queue unassigned, exactly as it always has.
-  const canAssign =
-    isAdmin || (session.kind === "employee" && session.employee.can_manage_assignments);
+  const { session } = useAuth();
+
+  // Three different people reach this page and they need three different pages.
+  //
+  // A **Boshliq** (including one who is also an Admin) files a *directive*: it goes out with
+  // a deadline and a named team, and the RTM group card says who issued it. That is the
+  // "boshqacha interfeys" below — a banner, a deadline picker and a staff picker.
+  //
+  // An employee flagged **only Admin** does not get it. Admin is the panel role: they add
+  // employees and fix records. Committing RTM to a deadline is the head's call, so they
+  // file an ordinary request and are told, in as many words, why the extra controls are
+  // not there.
+  //
+  // A **panel admin** — the email/password login — has no employee identity at all, so
+  // there is nobody to file *as*. The server refuses it; saying so before they type five
+  // paragraphs is the least the page can do.
+  const employee = session.kind === "employee" ? session.employee : null;
+  const canDirect = Boolean(employee?.can_file_managed_request);
+  const roleLabel = employee?.management_role ?? null;
+  const adminWithoutBoshliq = Boolean(employee?.is_admin && !employee.is_supervisor);
+  const isPanelAdmin = session.kind === "admin";
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [categorySlug, setCategorySlug] = useState("");
@@ -72,9 +117,9 @@ export function NewRequestPage() {
   }, []);
 
   useEffect(() => {
-    if (!canAssign) return;
+    if (!canDirect) return;
     employeesApi.rtmStaff().then(setStaff).catch(() => setStaff([]));
-  }, [canAssign]);
+  }, [canDirect]);
 
   // Object URLs are a real allocation — each one pins the whole image in memory until it is
   // revoked. Removing a file revokes its own; this releases whatever is still held when the
@@ -144,10 +189,10 @@ export function NewRequestPage() {
         category_slug: categorySlug,
         description: plainDescription,
         description_html: descriptionHtml || null,
-        assigned_to_employee_ids: canAssign ? assigneeIds : [],
+        assigned_to_employee_ids: canDirect ? assigneeIds : [],
         // datetime-local carries no timezone, so the browser reads it as local time —
         // which is what the person typing it meant. toISOString hands UTC to the server.
-        deadline_at: canAssign && deadline ? new Date(deadline).toISOString() : null,
+        deadline_at: canDirect && deadline ? new Date(deadline).toISOString() : null,
       });
 
       // Attached afterwards because an attachment needs a request to belong to. If one
@@ -185,8 +230,12 @@ export function NewRequestPage() {
     // fighting over a third of the screen.
     <div>
       <PageHeader
-        title="Yangi murojaat"
-        subtitle="Muammoni tasvirlab bering — RTM guruhiga darhol yetkaziladi"
+        title={canDirect ? `Yangi topshiriq · ${roleLabel}` : "Yangi murojaat"}
+        subtitle={
+          canDirect
+            ? "Muddat va bajaruvchi belgilab yuboriladi — RTM guruhida alohida kartochka bo'lib chiqadi"
+            : "Muammoni tasvirlab bering — RTM guruhiga darhol yetkaziladi"
+        }
         action={
           <Link
             to="/requests"
@@ -198,6 +247,60 @@ export function NewRequestPage() {
       />
 
       {error && <ErrorBanner message={error} />}
+
+      {/* The three audiences from the comment at the top of this component, each told what
+          they are looking at before they start typing rather than after they press send. */}
+      {isPanelAdmin && (
+        <Alert tone="danger" icon="🔒" title="Admin hisobidan murojaat yuborilmaydi">
+          Siz elektron pochta va parol bilan kirgan <b>panel admini</b>siz — bu hisob hech
+          qaysi xodimga bog'lanmagan, shuning uchun murojaatni <i>kim nomidan</i> yuborishni
+          tizim bila olmaydi va server uni rad etadi.
+          <br />
+          Murojaat yubormoqchi bo'lsangiz, HEMIS yoki «⚡ Tezkor kirish» orqali o'z xodim
+          hisobingiz bilan kiring. Boshqalarning murojaatlarini{" "}
+          <Link to="/requests" className="font-medium underline">
+            «Murojaatlar»
+          </Link>{" "}
+          sahifasida ko'rib, tayinlab va yakunlab borishingiz mumkin.
+        </Alert>
+      )}
+
+      {canDirect && (
+        <Alert
+          tone="brand"
+          icon={roleLabel === "ADMIN" ? "🛡" : "👑"}
+          title={`${roleLabel} rejimi yoqildi`}
+        >
+          Sizda <b>Boshliq</b> roli bor, shuning uchun bu sahifa kengaytirilgan ko'rinishda:
+          murojaatni yuborish bilan birga <b>bajarish muddatini</b> va{" "}
+          <b>mas'ul xodimlarni</b> ham belgilay olasiz.
+          <ul className="mt-2 list-disc space-y-0.5 pl-5">
+            <li>
+              RTM guruhiga oddiy murojaat emas, <b>«{roleLabel} TOPSHIRIG'I»</b> kartochkasi
+              tushadi va boshqa murojaatlardan ajralib turadi.
+            </li>
+            <li>Tanlangan har bir xodimga Telegram orqali darhol xabar boradi.</li>
+            <li>
+              Muddat — bu RTM nomidan berilgan va'da: o'tib ketsa, kartochka guruhda qizil
+              «MUDDAT O'TDI» holatiga o'tadi.
+            </li>
+            <li>Muddat va bajaruvchi — ixtiyoriy. Bo'sh qoldirsangiz oddiy murojaat bo'ladi.</li>
+          </ul>
+        </Alert>
+      )}
+
+      {adminWithoutBoshliq && (
+        <Alert tone="warning" icon="⚠️" title="Sizda faqat Admin roli bor">
+          Muddat va bajaruvchi belgilab <b>topshiriq</b> yuborishni faqat <b>Boshliq</b>{" "}
+          roliga ega xodim qila oladi — Admin roli tizimni boshqarish uchun (xodimlar,
+          bo'limlar, sozlamalar), murojaatni kimga va qachongacha topshirish esa RTM
+          boshlig'ining qarori.
+          <br />
+          Siz quyidagi oddiy shakl orqali murojaat yuborishingiz mumkin; u navbatga
+          «egasiz» bo'lib tushadi va xodimlar o'zlari oladi. Topshiriq berish kerak bo'lsa,
+          hisobingizga <b>Boshliq</b> rolini ham qo'shish lozim.
+        </Alert>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -333,51 +436,105 @@ export function NewRequestPage() {
         </div>
 
         <div className="space-y-6 lg:sticky lg:top-8">
-          {canAssign && (
-            <section className="rounded-xl border border-brand-200 bg-brand-50/40 p-5">
-              <div className="mb-1 font-medium text-slate-800">🛠 Bajaruvchini belgilash</div>
-              <p className="mb-3 text-xs text-slate-500">
-                Boshliq va Admin uchun. Birinchi tanlangan xodim mas'ul bo'ladi va har biriga
-                Telegram orqali xabar boradi. Bo'sh qoldirsangiz, murojaat guruhga
-                «egasiz» bo'lib tushadi va xodimlar o'zlari oladi.
-              </p>
-              {staff.length === 0 ? (
-                <div className="text-xs text-slate-400">RTM xodimlari ro'yxati bo'sh.</div>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {staff.map((person) => {
-                    const chosen = assigneeIds.includes(person.id);
-                    const lead = assigneeIds.indexOf(person.id) === 0;
-                    return (
-                      <button
-                        key={person.id}
-                        type="button"
-                        onClick={() => toggleAssignee(person.id)}
-                        className={`min-h-9 rounded-full border px-3 text-xs font-medium transition-colors ${
-                          chosen
-                            ? "border-brand-600 bg-brand-600 text-white"
-                            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        {chosen ? (lead ? "⭐ " : "✓ ") : ""}
-                        {person.full_name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+          {canDirect && (
+            <section className="overflow-hidden rounded-xl border-2 border-brand-300 bg-brand-50/50">
+              {/* A filled header bar, not another white card: this panel is the one thing on
+                  the page that is not on everybody else's, and it has to look like it. */}
+              <div className="flex items-center gap-2 bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white">
+                <span aria-hidden>{roleLabel === "ADMIN" ? "🛡" : "👑"}</span>
+                {roleLabel} topshirig'i
+              </div>
 
-              <label className="mt-4 block">
-                <span className="mb-1 block text-xs font-medium text-slate-600">
-                  Muddat <span className="font-normal text-slate-400">(ixtiyoriy)</span>
-                </span>
-                <input
-                  type="datetime-local"
-                  value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
-                  className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-                />
-              </label>
+              <div className="space-y-5 p-5">
+                <div>
+                  <div className="mb-1 text-sm font-medium text-slate-800">
+                    ⏱ Bajarish muddati
+                  </div>
+                  <p className="mb-2 text-xs text-slate-500">
+                    Hozirdan boshlab hisoblanadi. Muddat o'tsa, guruhdagi kartochka qizil
+                    «MUDDAT O'TDI» holatiga o'tadi va xodimlarga eslatma boradi.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DEADLINE_PRESETS.map(([label, minutes]) => {
+                      const value = deadlineFromNow(minutes);
+                      // Compared to the minute: the preset is "6 hours from now", and a
+                      // value computed a minute ago is still the button the user pressed.
+                      const chosen = deadline.slice(0, 16) === value.slice(0, 16);
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setDeadline(chosen ? "" : value)}
+                          aria-pressed={chosen}
+                          className={`min-h-9 rounded-full border px-3 text-xs font-medium transition-colors ${
+                            chosen
+                              ? "border-brand-600 bg-brand-600 text-white"
+                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {chosen ? "✓ " : ""}
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600">
+                      yoki aniq sana va vaqt{" "}
+                      <span className="font-normal text-slate-400">(ixtiyoriy)</span>
+                    </span>
+                    <input
+                      type="datetime-local"
+                      value={deadline}
+                      onChange={(e) => setDeadline(e.target.value)}
+                      className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <div className="border-t border-brand-200 pt-4">
+                  <div className="mb-1 text-sm font-medium text-slate-800">
+                    🛠 Tayinlangan xodimlar
+                  </div>
+                  <p className="mb-2 text-xs text-slate-500">
+                    Birinchi tanlangan xodim <b>mas'ul</b> bo'ladi va har biriga Telegram
+                    orqali darhol xabar boradi. Bo'sh qoldirsangiz, topshiriq guruhga
+                    «egasiz» bo'lib tushadi va xodimlar o'zlari oladi.
+                  </p>
+                  {staff.length === 0 ? (
+                    <div className="text-xs text-slate-400">RTM xodimlari ro'yxati bo'sh.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {staff.map((person) => {
+                        const chosen = assigneeIds.includes(person.id);
+                        const lead = assigneeIds.indexOf(person.id) === 0;
+                        return (
+                          <button
+                            key={person.id}
+                            type="button"
+                            onClick={() => toggleAssignee(person.id)}
+                            aria-pressed={chosen}
+                            className={`min-h-9 rounded-full border px-3 text-xs font-medium transition-colors ${
+                              chosen
+                                ? "border-brand-600 bg-brand-600 text-white"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            {chosen ? (lead ? "⭐ " : "✓ ") : ""}
+                            {person.full_name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {assigneeIds.length > 1 && (
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      ⭐ — mas'ul xodim. Tartibni o'zgartirish uchun tanlovni bekor qilib,
+                      mas'ul bo'ladigan xodimni birinchi bo'lib bosing.
+                    </p>
+                  )}
+                </div>
+              </div>
             </section>
           )}
 
@@ -395,28 +552,83 @@ export function NewRequestPage() {
               <Check done={picked.length > 0} optional>
                 {picked.length > 0 ? `${picked.length} ta material` : "Material biriktirilmagan"}
               </Check>
-              {canAssign && (
-                <Check done={assigneeIds.length > 0} optional>
-                  {assigneeIds.length > 0
-                    ? `${assigneeIds.length} ta bajaruvchi tanlandi`
-                    : "Bajaruvchi belgilanmagan"}
-                </Check>
+              {canDirect && (
+                <>
+                  <Check done={Boolean(deadline)} optional>
+                    {deadline
+                      ? `Muddat — ${new Date(deadline).toLocaleString("uz-UZ", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`
+                      : "Muddat belgilanmagan"}
+                  </Check>
+                  <Check done={assigneeIds.length > 0} optional>
+                    {assigneeIds.length > 0
+                      ? `${assigneeIds.length} ta xodim tayinlandi`
+                      : "Xodim tayinlanmagan"}
+                  </Check>
+                </>
               )}
             </div>
 
             <button
               type="submit"
-              disabled={!ready || busy}
+              disabled={!ready || busy || isPanelAdmin}
               className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
             >
-              {busy ? progress ?? "Yuborilmoqda..." : "📨 Murojaatni yuborish"}
+              {busy
+                ? progress ?? "Yuborilmoqda..."
+                : canDirect
+                  ? "📨 Topshiriqni yuborish"
+                  : "📨 Murojaatni yuborish"}
             </button>
             <p className="mt-2 text-center text-xs text-slate-400">
-              Yuborilgandan so'ng murojaat sahifasiga o'tasiz.
+              {canDirect
+                ? "Yuborilgach guruhga topshiriq kartochkasi tushadi va siz uning sahifasiga o'tasiz."
+                : "Yuborilgandan so'ng murojaat sahifasiga o'tasiz."}
             </p>
           </section>
         </div>
       </form>
+    </div>
+  );
+}
+
+/**
+ * A framed explanation above the form.
+ *
+ * Separate from `ErrorBanner`, which reports something that went wrong. These say what kind
+ * of page the reader is on before they spend five minutes on it — which role they are
+ * filing as, what the extra controls will do, or why the controls they expected are absent.
+ */
+function Alert({
+  tone,
+  icon,
+  title,
+  children,
+}: {
+  tone: "brand" | "warning" | "danger";
+  icon: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  const tones = {
+    brand: "border-brand-300 bg-brand-50 text-slate-700",
+    warning: "border-amber-300 bg-amber-50 text-amber-900",
+    danger: "border-red-300 bg-red-50 text-red-900",
+  } as const;
+
+  return (
+    <div className={`mb-6 flex gap-3 rounded-xl border p-4 text-sm ${tones[tone]}`} role="note">
+      <span aria-hidden className="text-xl leading-none">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div className="mb-1 font-semibold">{title}</div>
+        <div className="leading-relaxed">{children}</div>
+      </div>
     </div>
   );
 }

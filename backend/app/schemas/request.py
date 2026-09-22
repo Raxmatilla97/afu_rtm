@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from afu_shared.media import kind_label
+from afu_shared.people import role_label
 
 
 class RequestCreate(BaseModel):
@@ -213,6 +214,10 @@ class RequestResponse(BaseModel):
     description_html: str | None = None
     status: str
     source: str
+    #: "boshliq" / "admin" when this was filed as a management directive, else null. The web
+    #: badges it the way the group card does, so the same request reads the same on both.
+    requester_role: str | None = None
+    requester_role_label: str | None = None
     assigned_to_employee_id: int | None
     assigned_to_name: str | None = None
     deadline_at: datetime | None
@@ -248,6 +253,8 @@ class RequestResponse(BaseModel):
             description_html=r.description_html,
             status=r.status,
             source=r.source,
+            requester_role=r.requester_role,
+            requester_role_label=role_label(r.requester_role),
             assigned_to_employee_id=r.assigned_to_employee_id,
             assigned_to_name=r.assigned_to.full_name if r.assigned_to else None,
             deadline_at=r.deadline_at,

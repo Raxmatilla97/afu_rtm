@@ -14,6 +14,14 @@ export interface EmployeeMe {
   is_admin: boolean;
   /** Boshliq or Admin: may assign a request to somebody and take somebody off one. */
   can_manage_assignments: boolean;
+  /**
+   * Boshliq only — may file a *directive*: a request that goes out already carrying a
+   * deadline and a named team. Narrower than `can_manage_assignments`, which an Admin also
+   * has; issuing one is the head of RTM's call, not the panel operator's.
+   */
+  can_file_managed_request: boolean;
+  /** What the RTM group card will call them — "ADMIN", "BOSHLIQ" — or null for everyone else. */
+  management_role: string | null;
   phone_number: string | null;
   telegram_username: string | null;
 }
@@ -124,6 +132,9 @@ export interface RequestItem {
   description_html: string | null;
   status: string;
   source: string;
+  /** "boshliq" / "admin" when this was filed as a management directive, else null. */
+  requester_role: string | null;
+  requester_role_label: string | null;
   assigned_to_employee_id: number | null;
   assigned_to_name: string | null;
   deadline_at: string | null;
@@ -285,6 +296,11 @@ export interface InventoryMovement {
   id: number;
   item_id: number;
   item_name: string | null;
+  item_unit: string | null;
+  item_category_slug: string | null;
+  item_category_label: string | null;
+  item_status: string | null;
+  item_status_label: string | null;
   delta: number;
   reason: string;
   reason_label: string;
@@ -296,6 +312,17 @@ export interface InventoryMovement {
   note: string | null;
   attachments: InventoryAttachment[];
   created_at: string;
+}
+
+/** One screen of the write-off register. Totals cover the whole filtered set, not the page. */
+export interface WriteOffPage {
+  rows: InventoryMovement[];
+  total: number;
+  total_quantity: number;
+  total_value: Money;
+  item_count: number;
+  this_month_quantity: number;
+  this_month_value: Money;
 }
 
 export interface InventorySummary {
